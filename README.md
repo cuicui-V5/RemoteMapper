@@ -1,0 +1,139 @@
+# 小米蓝牙语音遥控器 → 微信输入法语音录入
+
+> 📌 **要在其他电脑上部署？** 请看 [`DEPLOY.md`](DEPLOY.md)（新机器从零部署指南）。
+
+把小米蓝牙语音遥控器的语音键变成微信输入法（WeType）的语音输入按钮：
+**按住遥控器语音键** → 自动唤起微信输入法语音录入 + 把遥控器麦克风的音频送进去；
+**松开** → 结束录入，恢复系统原默认麦克风。
+
+---
+
+## 一、前置准备（只需做一次）
+
+### 1. 安装 VB-Cable（虚拟音频线）
+- 下载安装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费）
+- 安装后系统会多出一对虚拟音频设备：
+  - `CABLE Input`（播放端）
+  - `CABLE Output`（录音端）
+- **不要**手动修改系统默认录音设备 —— 程序会在使用时自动切换
+
+### 2. 安装微信输入法
+- 安装 [微信输入法（WeType）](https://z.weixin.qq.com/)
+- 在微信输入法设置里，开启**语音输入**功能
+- 确认语音输入的快捷键是 **右 Alt + 逗号（,）**（默认即是）
+
+### 3. 配对遥控器
+- 设置 → 蓝牙 → 添加「小米蓝牙语音遥控器」并配对
+- 配对后遥控器会同时作为 **BLE 设备**（语音数据）和 **HID 键盘**（按键）连接
+
+### 4. 放行程序
+- 如果被杀毒软件/Windows Defender 拦截，请放行 `RemoteMic.exe`
+
+---
+
+## 二、启动
+
+**双击 `start.bat`**，或直接运行 `RemoteMic.exe`。
+
+看到以下提示即表示就绪：
+
+```
+== RemoteMic: remote mic -> CABLE + WeChat IME hotkey ==
+[1/4] connecting to remote... OK (MI RC)
+[2/4] setting up ATVV service... OK
+[3/4] opening VB-Cable Input... OK
+[F5] blocker installed (remote voice-key HID F5 will be swallowed)
+[DEV] CABLE Output found as device; will auto-switch default capture while talking
+[4/4] ATVV handshake... ready
+>> HOLD the voice button to talk. Release to stop.
+```
+
+现在就可以用了：
+1. 把光标点进任意**文本框**（聊天框、记事本、Word 等）
+2. **按住**遥控器语音键，正常说话
+3. 微信输入法弹出语音录入，转写文字输入到光标处
+4. **松开**语音键结束
+
+按 **Ctrl + C** 退出程序。
+
+---
+
+## 三、工作原理
+
+```
+按住语音键 ──┬─> BLE 通知 CTL「按下」
+             │     ├─ 默认录音设备切换 → CABLE Output（让微信输入法能录到）
+             │     ├─ 注入热键 [右Alt + 逗号] 按下 → 微信输入法弹出
+             │     └─ 开始把遥控器音频解码后推送到 CABLE Input
+             │
+             └─> HID 同时发出 F5 → 被 F5Blocker 钩子吞掉（不干扰）
+
+松开语音键 ──┬─> BLE 通知 CTL「松开」
+             │     ├─ 停止推流
+             │     ├─ 注入热键释放 → 微信输入法结束录入
+             │     └─ 默认录音设备恢复 → 你的原麦克风
+```
+
+**核心要点：**
+- 遥控器音频通过蓝牙 BLE 的 ATVV 协议传输（IMA ADPCM 编码），程序实时解码后通过 VB-Cable 虚拟线送给微信输入法
+- 程序内部拦截了遥控器语音键会发出的 **F5** 键盘事件（它会污染热键组合），触发信号完全走 BLE 通道，不受影响
+- **只在按住遥控器时**临时切换默认录音设备，松开后立即恢复，平时用别的麦克风完全不受影响
+
+---
+
+## 四、注意事项
+
+- ⚠️ **遥控器需保持唤醒**：遥控器闲置会休眠，按任意键唤醒后再用语音键
+- ⚠️ 一次只能连一个程序。退出 RemoteMic 后遥控器语音键才回到普通 F5 功能
+- 💡 普通用户权限即可运行，无需管理员；双击 `start.bat` 或直接运行 `RemoteMic.exe` 均可
+
+---
+
+## 五、故障排查
+
+| 现象 | 排查 |
+|------|------|
+| 程序提示 remote NOT FOUND | 遥控器未连接/已休眠，按几个键唤醒它再启动 |
+| 微信输入法不弹出 | 先用物理键盘按 `右Alt + 逗号` 测试：若手动也不行则是输入法设置问题；若手动能弹但遥控器不行，重启 RemoteMic |
+| 弹出但转写不出文字/无反应 | 运行 `CaptureCable.exe` 录制 3 秒检查 CABLE 回路是否有声音 |
+| 转写的声音很小 | 正常，AGC 已自动增益；如仍太小可对着遥控器麦克风口说话 |
+| 想看遥控器发了什么键 | 运行 `KeySniffer.exe`，按遥控器看输出 |
+
+**诊断命令：**
+```bash
+# 列出当前录音设备 + 默认设备
+DefDev.exe list
+
+# 验证 CABLE 音频回路（录 3 秒）
+CaptureCable.exe
+
+# 抓取所有键盘事件（看遥控器/注入发了什么）
+KeySniffer.exe
+```
+
+---
+
+## 六、环境变量（可选，默认无需设置）
+
+| 变量 | 作用 | 默认 |
+|------|------|------|
+| `REMOTEMIC_HOTKEY=0` | 关闭热键注入（纯音频测试用） | 开启 |
+| `REMOTEMIC_DUMP=1` | 松开时把解码音频存为 `rt_dump_HHmmss.wav` | 关闭 |
+| `REMOTEMIC_KEYDIAG=1` | 注入时打印前台窗口信息 | 关闭 |
+
+---
+
+## 七、文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `RemoteMic.cs` / `.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换） |
+| `start.bat` | 一键启动脚本 |
+| `KeySniffer.cs` / `.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
+| `DefDev.cs` / `.exe` | 诊断：列出/切换默认录音设备 |
+| `CaptureCable.cs` / `.exe` | 诊断：录制 CABLE Output 验证音频回路 |
+| `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
+| `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
+
+### 重新编译
+需要 .NET Framework 4.8（系统自带 csc.exe）。编译命令见 `NOTES.md` 末尾。

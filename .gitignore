@@ -1,0 +1,20 @@
+# logs & diagnostics
+*.log
+RemoteMic.log
+
+# build intermediates
+*.pdb
+*.obj
+obj/
+bin/
+
+# test audio captures
+*.wav
+*.bin
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

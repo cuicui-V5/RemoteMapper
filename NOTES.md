@@ -1,0 +1,173 @@
+# 小米蓝牙语音遥控器 → PC 麦克风项目笔记
+
+## 设备
+- 名称: 小米蓝牙语音遥控器
+- BLE MAC: C0:5D:39:XX:XX:XX
+- 适配器: xx:xx:xx:xx:xx:xx
+- BLE Device Id: `BluetoothLE#BluetoothLExx:xx:xx:xx:xx:xx-c0:5d:39:xx:xx:xx`
+- HID 层 VID/PID: 2717 / 32B8
+
+## GATT 服务全景
+| Service UUID | 身份 | 备注 |
+|---|---|---|
+| 1812 (HID) | 键盘/按键 | Windows HID 栈占用 (AccessDenied)，应用层访问不到，但按键映射走 RawInput |
+| **ab5e0001** | **ATVV 语音** | **核心目标，完全可访问** |
+| 8a7a0001 | 小米私有 | 备用 |
+| 180f/180a/1800/1801 | 电池/设备信息/通用访问/通用属性 | 标准 |
+| fe59 | Nordic DFU | 固件升级，无关 |
+
+## ATVV 服务 (ab5e0001-5a21-4f05-bc7d-af01f617b664)
+| Char | UUID 末段 | 属性 | 用途 |
+|---|---|---|---|
+| TX/CMD | ab5e0002 | Write | 主机→遥控器 命令 |
+| RX/AUDIO | ab5e0003 | Notify | 遥控器→主机 ADPCM 音频流 |
+| CTL | ab5e0004 | Notify | 遥控器→主机 控制信号 |
+
+## 已验证的握手流程 (实测通过)
+1. 订阅 ab5e0003 + ab5e0004 的 notify
+2. Write ab5e0002 = `0A 01 00 00 03 03` (GET_CAPS v1.0)
+   → 收 CTL: `0B 01 00 00 03 00 78 00 00`
+     - 版本 1.0
+     - codecs 0x0003 (支持 8kHz + 16kHz)
+     - frame_size = 0x0078 = **120 字节**
+3. Write ab5e0002 = `0C 00` (MIC_OPEN v1.0)
+   → 收 CTL: `04 00 02 00` (AUDIO_START, codec=0x02=**16kHz ADPCM**)
+4. **按住语音键** → 收 CTL `04 03 02 01` (AUDIO_START, reason=HTT) → 开始推 120B 音频帧
+5. **松开** → 收 CTL `00 02` (AUDIO_STOP, reason=HTT release)
+6. Write ab5e0002 = `0D` (MIC_CLOSE) → 收 CTL `00 00`
+
+## ATVV opcode 表
+TX (ab5e0002 Write, 主机→遥控器):
+- 0x0A GET_CAPS
+- 0x0C MIC_OPEN
+- 0x0D MIC_CLOSE
+- 0x0E MIC_EXTEND (keepalive, v1.0)
+
+CTL (ab5e0004 Notify, 遥控器→主机):
+- 0x00 AUDIO_STOP
+- 0x04 AUDIO_START
+- 0x08 START_SEARCH
+- 0x0A AUDIO_SYNC
+- 0x0B CAPS_RESP
+- 0x0C MIC_OPEN_ERROR
+
+## 音频参数 (Phase 2 已锁定，实测确认 ✅)
+- 编码: IMA/DVI ADPCM, 4 bit/sample
+- Nibble 顺序: **高 nibble 在前 (hi-first)**
+- 采样率: **16 kHz** (16k 播放语速音高完全正确；8k 会变慢变低)
+- 声道: mono
+- 帧长: 120 字节/帧 = 240 samples/帧 ≈ 15ms
+- **帧格式: HEADERLESS (无帧头！)**
+  - 不同于标准 ATVV v0.4 的 6 字节头 (seq|pad|pred|step)
+  - ByteUnique 分析证明: 全部 120 字节多样性一致 (~100 唯一值/40%)，无任何常数字节
+  - 整帧 120 字节全是 ADPCM 数据
+- **解码状态: 跨帧连续 (不重置 predictor/step_index)**
+  - 初始 predictor=0, step_index=0
+  - 正确解码签名: RMS≈349, 削波 0% (错误的重置/skip 解码 RMS≈18400 削波 62%)
+
+## 解码后处理管线 (ATVVoice 同款, 逐项验证有效)
+1. **Declip** (尖峰替换): 单点尖峰 (邻居差 >1000 且 >2× 邻居间差) → 用邻居均值替换。消除帧边界 click
+2. **Lowpass** (3-tap 三角 FIR): `out[i] = (prev + 2*cur + next) >> 4`... 实为 `>>2`，即 [0.25,0.5,0.25]。去除高频量化噪声
+3. **归一化**: p95 百分位抗尖峰归一化 (target = 0.5×32767)
+
+## Phase 2 排错历程 (供参考，勿再走弯路)
+- ❌ 标准 ATVV v0.4 6字节头 (pred@3-4BE step@5): ProbeHdr matchErr≈19000(随机水平)，ByteUnique 无常数字节 → 此遥控器无标准头
+- ❌ per-frame 重置 predictor/step: 产生帧边界 click (70Hz 嗡嗡)，RMS 偏高
+- ❌ skip N 字节连续解码: 丢失数据+错位；skip5 的 pitch=0.973 是 DC 漂移伪周期，非真语音
+- ❌ lo-nibble-first: RMS=1239 (hi=349 的 3.5×)，非正确序
+- ✅ headerless + 连续状态 + hi-first: 唯一通过 RMS/削波/人耳三重验证
+
+## 路线图
+- [x] Phase 1: 握手验证 (GET_CAPS/MIC_OPEN/音频流) ✅
+- [x] Phase 2: IMA ADPCM 解码 → 16bit PCM ✅ (headerless 连续解码, CleanDecode.cs)
+- [x] Phase 3: 实时解码管道 (BLE notify → ADPCM 解码 → VB-Cable) ✅ (RemoteMic.cs)
+- [x] Phase 4: 联动语音输入法 (按住录入) ✅ (2025-08-07 完整跑通)
+
+---
+
+## Phase 3+4 最终实现 (RemoteMic.cs)
+
+### 架构
+单个程序 `RemoteMic.exe` 同时做三件事：
+1. **BLE ATVV 连接** — 握手 + CTL 监听 (HTT 按下/松开) + AUDIO notify 实时解码
+2. **音频推流** — 解码后 PCM → AGC → 写入 VB-CABLE Input (winmm waveOut, 8×双缓冲)
+3. **热键联动** — 按住语音键 → 注入 [右Alt+逗号] down + 开始推流；松开 → keyup + 停止推流
+
+### 解码+后处理 (实时, 每帧 120B)
+1. IMA ADPCM headerless 连续解码 (hi-nibble-first, predictor/step 跨帧连续)
+2. Declip (单点尖峰 → 邻居均值, 跨帧连续)
+3. Lowpass 3-tap `[0.25,0.5,0.25]` (跨帧连续)
+4. **AGC** (实时自适应增益): 跟踪峰值 `agcPeak`, 衰减系数 0.9997, 增益 = min(30, 28000/max(agcPeak,200)), 零削波。实测 RMS=6020 max=28008
+
+### 关键问题与解决方案 (Phase 4 排错核心)
+
+#### 问题1: 热键注入需前台运行
+- 现象: PowerShell `Start-Process -RedirectStandardOutput` 后台启动时 SendInput 无效
+- 原因: stdout 重定向改变进程桌面/console 上下文, SendInput 失效
+- 解决: **直接前台运行 RemoteMic.exe** (不要重定向)
+
+#### 问题2: 注入线程上下文
+- 怀疑过 WinRT 回调线程上下文问题, 实测可排除
+- 最终采用独立 keyworker 线程 (BlockingCollection 传信号), GATT 回调只入队
+
+#### ★★★ 问题3: 遥控器语音键 = F5 HID 干扰 (根因!)
+- **发现工具**: `KeySniffer.cs` (WH_KEYBOARD_LL 全局钩子) + `KeyStateCheck.cs` (注入对照)
+- **现象**: 遥控器按键触发注入后 WeType 不弹；但 (1) 物理键 [RAlt+逗号] 正常 (2) 无钩子进程注入正常 (3) 进程内无 F5 流时注入也正常
+- **根因 (最终确认)**: 遥控器语音键被 Windows HID 栈映射为 **F5 键 (VK_0x74)**，按住时持续重发 F5。`WH_KEYBOARD_LL` 钩子在线时，**所有输入（包括 SendInput 注入的键）都会被 marshaling 到安装钩子的线程处理**；F5 高频流量拖垮了注入的 RAlt/Comma 时序 → WeType 检测不到干净热键组合
+- **解决方案**: `KeySim.HoldCombo/ReleaseCombo` 注入前 `F5Blocker.Suspend()`（卸钩子，跨线程安全）→ 强制释放 F5+所有修饰键 → 注入 RAlt+Comma → `F5Blocker.Resume()`
+- ★ **关键坑1: Resume 必须在 pump 线程执行** — `SetWindowsHookEx` 必须在跑消息泵的线程调用。用 `PostThreadMessage(pumpTid, WM_APP_REHOOK)` 让 pump 线程在 `GetMessage` 循环里重挂钩子，这样重挂的是活钩子（F5 count 持续增长验证）。在 keyworker 线程挂钩 = 死钩子（count 不涨）
+- ★ **关键坑2: UnhookWindowsHookEx 跨线程安全** — Suspend 从 keyworker 线程调用 `UnhookWindowsHookEx(hhk)` 是安全的（任何线程都能卸钩子）
+- **证据**: Suspend/Resume 版本 F5 count 持续增长 (1→75→144→260→350) 且 WeType 每次触发；钩子全程在线版 count 也不涨且不触发
+- **教训**: (1) 任何「注入热键不生效但物理键正常」第一步看设备发了什么 HID (2) **WH_KEYBOARD_LL 钩子会改变整个进程的输入处理路径，高频 HID 设备 + 同时注入热键 = 灾难**，注入期间必须卸钩子
+
+### 最终热键注入方案 (KeySim)
+- `SendInput` + `keybd_event` 双保险
+- 带 scan code (`KEYEVENTF_SCANCODE`) + 扩展键标志 (`KEYEVENTF_EXTENDEDKEY` for RAlt)
+- HoldCombo: **先 `F5Blocker.Suspend()` 卸钩子** → 强制释放 F5+RAlt+逗号 → Send RAlt down → Send 逗号 down → `F5Blocker.Resume()`
+- ReleaseCombo: **先 Suspend** → Send 逗号 up → Send RAlt up → Resume
+- ★ Suspend/Resume 是注入生效的**唯一关键**（不是强制释放 F5 本身）
+
+### 麦克风路由
+- VB-Cable: 播放端 `CABLE Input` (winmm waveOut), 录音端 `CABLE Output`
+- 微信输入法 (WeType) 只能用系统默认录音设备
+- **自动切换方案** (已实现): 按住语音键 → `DeviceSwitch.SwitchToCable()` 把系统默认录音切到 CABLE Output；松开 → `Restore()` 切回原设备。通过 `IPolicyConfig` COM 接口的 `SetDefaultEndpoint` 实现
+- COM 调用在 STA 线程执行 (OnSta 包装)
+- **只在遥控器触发时切换** (ACT_HOLD/RELEASE 走 HTT 通道), 手动操作不受影响
+
+### DeviceSwitch 实现要点 (IPolicyConfig COM)
+- CLSID `870af99c-171d-4f9e-af0d-e63df40c2bc9` (CPolicyConfigClient), 接口 `f8679f50-850a-41cf-9c72-430f290290c8`
+- **关键: SetDefaultEndpoint 是第 11 个方法** (前 10 个占位: GetMixFormat...SetPropertyValue)
+  - llm 给的 21 个占位是错的! (混淆了接口版本) → AccessViolation
+  - 正确数法见 web-research 结果
+- `new CPolicyConfigClient()` 然后 `SetDefaultEndpoint(id, role)` 三个 role 都调 (eConsole/eMultimedia/eCommunications)
+- 设备枚举/取名用 `IMMDeviceEnumerator` + `IPropertyStore`, friendly name (VT_LPWSTR) 读 offset 8 的 IntPtr, 读后 `PropVariantClear`
+- COM 调用应在 STA 线程, 本实现用 OnSta 包装 (SetApartmentState + Join)
+
+### 运行方式
+```bash
+REMOTEMIC_HOTKEY=1   # 默认开启热键
+REMOTEMIC_DUMP=1     # 可选: 保存实时解码 WAV 到 rt_dump_*.wav
+REMOTEMIC_KEYDIAG=1  # 可选: 打印注入时前台窗口
+RemoteMic.exe        # 必须前台运行!
+```
+
+### 编译命令
+```bash
+C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe /nologo /target:exe /platform:x64 \
+  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Devices.winmd \
+  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Foundation.winmd \
+  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Storage.winmd \
+  /r:C:\\Windows\\Microsoft.NET\\assembly\\GAC_MSIL\\System.Runtime\\v4.0_4.0.0.0__b03f5f7f11d50a3a\\System.Runtime.dll \
+  /out:RemoteMic.exe RemoteMic.cs
+```
+
+## 技术栈约束
+- 编译: .NET Framework 4.8 csc.exe (无 .NET SDK, 有 .NET 8 runtime)
+- WinRT 引用: C:\Windows\System32\WinMetadata\*.winmd + GAC System.Runtime + System.Runtime.InteropServices.WindowsRuntime
+- 关键坑:
+  - .NET Framework 4.8 csc 对新 WinMetadata 的 WinRT 事件投影失效 → 用反射 HookEvent 调 add_ValueChanged
+  - WinRT async awaiter 版本不匹配 → 用 TaskCompletionSource 手动包装 IAsyncOperation (AsT helper)
+  - PowerShell 5.1 无法订阅 WinRT 事件 → 必须 C#
+  - BLE Device Id 不含 VID/PID，按 MAC c0:5d:39 匹配
+
+
