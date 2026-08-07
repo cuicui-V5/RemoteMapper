@@ -148,7 +148,7 @@ CTL (ab5e0004 Notify, 遥控器→主机):
 REMOTEMIC_HOTKEY=1   # 默认开启热键
 REMOTEMIC_DUMP=1     # 可选: 保存实时解码 WAV 到 rt_dump_*.wav
 REMOTEMIC_KEYDIAG=1  # 可选: 打印注入时前台窗口
-RemoteMic.exe        # 必须前台运行!
+RemoteMic.exe        # 前台调试用；后台用 start.vbs（隐藏窗口，钩子靠内部 pump 线程，无需可见窗口）
 ```
 
 ### 编译命令

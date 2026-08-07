@@ -33,7 +33,16 @@
 
 ## 二、启动
 
-**双击 `start.bat`**，或直接运行 `RemoteMic.exe`。
+两种入口，按需选用：
+
+### A. 后台常驻（推荐，无窗口）
+- **双击 `start.vbs`** —— 无窗口后台启动，日志写入 `RemoteMic.log`
+- 停止：双击 `stop.bat`（或 `taskkill /F /IM RemoteMic.exe`）
+- 开机自启：双击 `install-autostart.bat`（卸载用 `uninstall-autostart.bat`）
+- 程序已在跑时再启动会提示，不会重复开第二个
+
+### B. 前台窗口（调试用，看实时输出）
+- **双击 `debug.bat`**（前台调试看实时输出），或直接运行 `RemoteMic.exe`；`Ctrl+C` 退出
 
 看到以下提示即表示就绪：
 
@@ -85,7 +94,8 @@
 
 - ⚠️ **遥控器需保持唤醒**：遥控器闲置会休眠，按任意键唤醒后再用语音键
 - ⚠️ 一次只能连一个程序。退出 RemoteMic 后遥控器语音键才回到普通 F5 功能
-- 💡 普通用户权限即可运行，无需管理员；双击 `start.bat` 或直接运行 `RemoteMic.exe` 均可
+- 💡 普通用户权限即可运行，无需管理员；后台用 `start.vbs`，调试用 `debug.bat`
+- 💡 全局键钩子靠内部消息泵线程工作，窗口是否可见不影响功能；后台运行同样可用
 
 ---
 
@@ -128,7 +138,10 @@ KeySniffer.exe
 | 文件 | 说明 |
 |------|------|
 | `RemoteMic.cs` / `.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换） |
-| `start.bat` | 一键启动脚本 |
+| `start.vbs` | **后台启动器**（无窗口常驻，日志写 `RemoteMic.log`） |
+| `stop.bat` | 停止后台 RemoteMic |
+| `install-autostart.bat` / `uninstall-autostart.bat` | 安装/卸载开机自启 |
+| `debug.bat` | 前台启动脚本（调试看实时输出） |
 | `KeySniffer.cs` / `.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
 | `DefDev.cs` / `.exe` | 诊断：列出/切换默认录音设备 |
 | `CaptureCable.cs` / `.exe` | 诊断：录制 CABLE Output 验证音频回路 |

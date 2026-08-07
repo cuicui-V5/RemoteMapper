@@ -1,8 +1,9 @@
 @echo off
 cd /d "%~dp0"
-title RemoteMic
+title RemoteMic (debug - foreground)
 echo ============================================
 echo   RemoteMic - Xiaomi Remote -> WeType
+echo   (foreground debug mode, see realtime output)
 echo ============================================
 echo.
 echo   Hold the voice button on remote to talk.
