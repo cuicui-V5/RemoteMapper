@@ -80,12 +80,12 @@ CTL (ab5e0004 Notify, 遥控器→主机):
 ## 路线图
 - [x] Phase 1: 握手验证 (GET_CAPS/MIC_OPEN/音频流) ✅
 - [x] Phase 2: IMA ADPCM 解码 → 16bit PCM ✅ (headerless 连续解码, CleanDecode.cs)
-- [x] Phase 3: 实时解码管道 (BLE notify → ADPCM 解码 → VB-Cable) ✅ (RemoteMic.cs)
+- [x] Phase 3: 实时解码管道 (BLE notify → ADPCM 解码 → VB-Cable) ✅ (src\RemoteMic.cs)
 - [x] Phase 4: 联动语音输入法 (按住录入) ✅ (2025-08-07 完整跑通)
 
 ---
 
-## Phase 3+4 最终实现 (RemoteMic.cs)
+## Phase 3+4 最终实现 (src\RemoteMic.cs)
 
 ### 架构
 单个程序 `RemoteMic.exe` 同时做三件事：
@@ -158,7 +158,7 @@ C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe /nologo /target:exe /pla
   /r:C:\\Windows\\System32\\WinMetadata\\Windows.Foundation.winmd \
   /r:C:\\Windows\\System32\\WinMetadata\\Windows.Storage.winmd \
   /r:C:\\Windows\\Microsoft.NET\\assembly\\GAC_MSIL\\System.Runtime\\v4.0_4.0.0.0__b03f5f7f11d50a3a\\System.Runtime.dll \
-  /out:RemoteMic.exe RemoteMic.cs
+  /out:RemoteMic.exe src\RemoteMic.cs
 ```
 
 ## 技术栈约束

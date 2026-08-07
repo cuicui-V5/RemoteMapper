@@ -10,15 +10,19 @@
 整个部署 = **拷 4 个 .exe + 装 2 个依赖软件 + 蓝牙配对遥控器**。运行时不依赖任何额外 dll —— WinRT / COM / .NET Framework 4.8 都由 Windows 系统自带提供。
 
 ```
-部署清单（最小集合，拷这几个文件即可）：
+部署清单（最小集合）：
+
+根目录（日常运行所需）：
   RemoteMic.exe        主程序（必需）
   start.vbs            后台启动器（推荐，无窗口常驻）
   stop.bat             停止后台进程
-  install-autostart.bat / uninstall-autostart.bat  开机自启 安装/卸载（可选）
-  KeySniffer.exe       诊断（建议）
-  DefDev.exe           诊断（建议）
-  CaptureCable.exe     诊断（建议）
   debug.bat            前台启动脚本（可选，调试看实时输出）
+  install-autostart.bat / uninstall-autostart.bat  开机自启 安装/卸载（可选）
+
+tools\（按需诊断，非运行必需）：
+  KeySniffer.exe       诊断：键盘事件抓取（建议）
+  DefDev.exe           诊断：录音设备列举/切换（建议）
+  CaptureCable.exe     诊断：CABLE 音频回路验证（建议）
 ```
 
 **数据流（理解原理有助于排错）：**
@@ -91,7 +95,7 @@
 ## 5. 拷贝程序文件并放行
 
 1. 在目标机器建一个文件夹，例如 `D:\RemoteMapper\`
-2. 把「部署清单」里的 4 个 `.exe` + `start.vbs`/`stop.bat`（和可选的 `debug.bat`）拷进去
+2. 把部署清单所列文件拷进去，**保持目录结构**：根目录放 `RemoteMic.exe` + 脚本，`tools\` 子目录放 3 个诊断 exe
 3. **放行 Defender**：首次运行若被 SmartScreen / Defender 拦截：
    - SmartScreen → 「更多信息」→ 「仍要运行」
    - 若被隔离 → Windows 安全中心 → 病毒和威胁防护 → 允许在设备上 / 添加排除项
@@ -128,7 +132,7 @@
 | `[2/4]` 反复重试失败 | BLE 服务未就绪，多发生在刚配对后。等 10 秒重启程序 |
 | `[DEV] CABLE Output not found` | VB-CABLE 没装好或没重启。回到第 2 步确认录音设备里有 `CABLE Output` |
 | 程序一切正常，但微信输入法**不弹出** | 先用**物理键盘**按 `右Alt+逗号`：手动也不弹 = 微信输入法设置问题（第 3 步）；手动能弹 = 重启 RemoteMic 再试 |
-| 微信输入法弹出但**转写不出文字** | CABLE 音频回路没通。运行 `CaptureCable.exe`（按住遥控器说话录 3 秒），回放听有没有声音 |
+| 微信输入法弹出但**转写不出文字** | CABLE 音频回路没通。运行 `tools\CaptureCable.exe`（按住遥控器说话录 3 秒），回放听有没有声音 |
 | 转写的声音很小/断续 | 对着遥控器麦克风说话；属正常（程序已做 AGC 自动增益） |
 | 双击 exe 窗口一闪而过 | 改用 `debug.bat` 启动，窗口会停留显示错误信息 |
 | 被杀毒软件删除 | 加信任 / 添加排除文件夹 |
@@ -149,10 +153,10 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
   /r:"C:\Windows\System32\WinMetadata\Windows.Foundation.winmd" ^
   /r:"C:\Windows\System32\WinMetadata\Windows.Storage.winmd" ^
   /r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll" ^
-  /out:RemoteMic.exe RemoteMic.cs
+  /out:RemoteMic.exe src\RemoteMic.cs
 ```
 
-4 个引用缺一不可（Windows.Storage.winmd 提供 IBuffer；System.Runtime 提供异步扩展）。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件，直接 `csc /out:X.exe X.cs` 即可。
+4 个引用缺一不可（Windows.Storage.winmd 提供 IBuffer；System.Runtime 提供异步扩展）。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件，在项目根目录编译：`csc /out:tools\X.exe src\X.cs`。
 
 ---
 
@@ -162,11 +166,11 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
 
 程序**按蓝牙设备名 "MI RC" 自动匹配**，所以换同型号遥控器**无需改代码**。直接配对新遥控器、运行程序即可。
 
-> 若设备名不是 "MI RC"，改 `RemoteMic.cs` 中 `IndexOf("MI RC", ...)` 里的名字后重新编译。
+> 若设备名不是 "MI RC"，改 `src\RemoteMic.cs` 中 `IndexOf("MI RC", ...)` 里的名字后重新编译。
 
 ### B2. 换一个语音输入法 / 换快捷键
 
-热键在 `RemoteMic.cs` 的 `KeySim` 里定义为 `VK_RMENU`（右 Alt, 0xA5）+ `VK_OEM_COMMA`（逗号, 0xBC）。
+热键在 `src\RemoteMic.cs` 的 `KeySim` 里定义为 `VK_RMENU`（右 Alt, 0xA5）+ `VK_OEM_COMMA`（逗号, 0xBC）。
 若要改成别的组合（如 `Ctrl+Space`），修改这两个常量并调整 `HoldCombo/ReleaseCombo` 的扩展键标志后重新编译。
 
 ### B3. 不自动切换录音设备（手动固定）

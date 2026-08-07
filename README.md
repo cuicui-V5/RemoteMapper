@@ -105,20 +105,20 @@
 |------|------|
 | 程序提示 remote NOT FOUND | 遥控器未连接/已休眠，按几个键唤醒它再启动 |
 | 微信输入法不弹出 | 先用物理键盘按 `右Alt + 逗号` 测试：若手动也不行则是输入法设置问题；若手动能弹但遥控器不行，重启 RemoteMic |
-| 弹出但转写不出文字/无反应 | 运行 `CaptureCable.exe` 录制 3 秒检查 CABLE 回路是否有声音 |
+| 弹出但转写不出文字/无反应 | 运行 `tools\CaptureCable.exe` 录制 3 秒检查 CABLE 回路是否有声音 |
 | 转写的声音很小 | 正常，AGC 已自动增益；如仍太小可对着遥控器麦克风口说话 |
-| 想看遥控器发了什么键 | 运行 `KeySniffer.exe`，按遥控器看输出 |
+| 想看遥控器发了什么键 | 运行 `tools\KeySniffer.exe`，按遥控器看输出 |
 
 **诊断命令：**
 ```bash
 # 列出当前录音设备 + 默认设备
-DefDev.exe list
+tools\DefDev.exe list
 
 # 验证 CABLE 音频回路（录 3 秒）
-CaptureCable.exe
+tools\CaptureCable.exe
 
 # 抓取所有键盘事件（看遥控器/注入发了什么）
-KeySniffer.exe
+tools\KeySniffer.exe
 ```
 
 ---
@@ -137,14 +137,26 @@ KeySniffer.exe
 
 | 文件 | 说明 |
 |------|------|
-| `RemoteMic.cs` / `.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换） |
+运行入口（根目录）：
+| 文件 | 说明 |
+|------|------|
+| `RemoteMic.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换）；源码 `src\RemoteMic.cs` |
 | `start.vbs` | **后台启动器**（无窗口常驻，日志写 `RemoteMic.log`） |
 | `stop.bat` | 停止后台 RemoteMic |
 | `install-autostart.bat` / `uninstall-autostart.bat` | 安装/卸载开机自启 |
 | `debug.bat` | 前台启动脚本（调试看实时输出） |
-| `KeySniffer.cs` / `.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
-| `DefDev.cs` / `.exe` | 诊断：列出/切换默认录音设备 |
-| `CaptureCable.cs` / `.exe` | 诊断：录制 CABLE Output 验证音频回路 |
+
+源码（`src\`）与诊断工具（`tools\`）：
+| 文件 | 说明 |
+|------|------|
+| `src\RemoteMic.cs` | 主程序源码 |
+| `src\KeySniffer.cs` → `tools\KeySniffer.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
+| `src\DefDev.cs` → `tools\DefDev.exe` | 诊断：列出/切换默认录音设备 |
+| `src\CaptureCable.cs` → `tools\CaptureCable.exe` | 诊断：录制 CABLE Output 验证音频回路 |
+
+文档与归档：
+| 文件 | 说明 |
+|------|------|
 | `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
 | `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
 
