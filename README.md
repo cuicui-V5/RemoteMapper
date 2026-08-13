@@ -20,7 +20,7 @@
 ### 2. 安装微信输入法
 - 安装 [微信输入法（WeType）](https://z.weixin.qq.com/)
 - 在微信输入法设置里，开启**语音输入**功能
-- 确认语音输入的快捷键是 **右 Alt + 逗号（,）**（默认即是）
+- 在设置里查看**语音输入**的快捷键是什么（后续会填进 `keymap.json` 的 `voice.hotkey`）
 
 ### 3. 配对遥控器
 - 设置 → 蓝牙 → 添加「小米蓝牙语音遥控器」并配对
@@ -51,7 +51,9 @@
 [1/4] connecting to remote... OK (MI RC)
 [2/4] setting up ATVV service... OK
 [3/4] opening VB-Cable Input... OK
-[F5] blocker installed (remote voice-key HID F5 will be swallowed)
+[KEYMAP] generated default config: keymap.json (all mappings disabled)
+[KEYMAP] voice hotkey: RALT+OEM_COMMA
+[F5] blocker + key mapper hook installed
 [DEV] CABLE Output found as device; will auto-switch default capture while talking
 [4/4] ATVV handshake... ready
 >> HOLD the voice button to talk. Release to stop.
@@ -67,12 +69,63 @@
 
 ---
 
+## 二B、按键映射（可选）
+
+除了语音功能，遥控器的其他键也可以映射为快捷键。编辑 `keymap.json`（首次运行自动生成）即可。
+
+**可用键：** 电源/确定/方向×4/主页/菜单/直播（共 9 个）
+**不可用键：** 返回/音量±（被 Windows `kbdhid.sys` 丢弃，无法映射）
+
+> ⚠️ **重要限制**：低级键盘钩子无法区分按键来源设备。如果你把「主页键」映射了快捷键，**物理键盘按 Home 也会触发**。请只映射你不常在物理键盘上用的键。
+
+`keymap.json` 示例（默认全关，按需开启）：
+
+```json
+{
+  "enabled": true,
+  "voice": { "hotkey": "RALT+OEM_COMMA" },
+  "keys": [
+    {
+      "id": "power", "name": "电源键", "vk": "0xFF",
+      "click": { "kind": "combo", "tap": true, "keys": "LALT+TAB" },
+      "hold": { "kind": "taskview", "tap": true, "ms": 600 }
+    },
+    { "id": "tv", "name": "直播键", "vk": "0xC0",
+      "click": { "kind": "combo", "tap": true, "keys": "ESC" }
+    }
+  ]
+}
+```
+
+**每个键支持 4 种手势：**
+
+| 手势 | 字段 | 说明 |
+|------|------|------|
+| 单击 | `click` | 按下/松开后触发 |
+| 双击 | `dbl` | 快速按两次；需配 `ms`（双击间隔，默认 300） |
+| 长按 | `hold` | 按住超过 `ms` 毫秒触发（默认 600） |
+| 重复 | `repeat` | 按住后每 `interval` 毫秒重复（需配 `delay`+`interval`） |
+
+**动作类型（`kind`）：**
+
+| kind | 说明 | 额外字段 |
+|------|------|----------|
+| `combo` | 快捷键组合 | `keys`: 键名用 `+` 连接，如 `LCTRL+Z` |
+| `taskview` | 打开任务视图 | 无 |
+| `launch` | 启动程序 | `command`: 程序路径 |
+| `cmd` | 执行命令 | `command`: 命令字符串 |
+| `code` | C# 代码片段→输入结果 | `command`: C# 表达式 |
+
+**语音热键（`voice.hotkey`）：** 控制按住语音键时注入什么快捷键来唤起语音输入法。请填入你所用输入法的语音输入快捷键（程序初始默认 `RALT+OEM_COMMA`，即右 Alt + 逗号，以微信输入法为例）。换了输入法或快捷键就在这里改。
+
+---
+
 ## 三、工作原理
 
 ```
 按住语音键 ──┬─> BLE 通知 CTL「按下」
              │     ├─ 默认录音设备切换 → CABLE Output（让微信输入法能录到）
-             │     ├─ 注入热键 [右Alt + 逗号] 按下 → 微信输入法弹出
+             │     ├─ 注入热键（`voice.hotkey`）按下 → 微信输入法弹出
              │     └─ 开始把遥控器音频解码后推送到 CABLE Input
              │
              └─> HID 同时发出 F5 → 被 F5Blocker 钩子吞掉（不干扰）
@@ -104,7 +157,7 @@
 | 现象 | 排查 |
 |------|------|
 | 程序提示 remote NOT FOUND | 遥控器未连接/已休眠，按几个键唤醒它再启动 |
-| 微信输入法不弹出 | 先用物理键盘按 `右Alt + 逗号` 测试：若手动也不行则是输入法设置问题；若手动能弹但遥控器不行，重启 RemoteMic |
+| 微信输入法不弹出 | 先用物理键盘按**你在 `voice.hotkey` 里配的热键**测试：若手动也不行则是输入法设置问题；若手动能弹但遥控器不行，重启 RemoteMic |
 | 弹出但转写不出文字/无反应 | 运行 `tools\CaptureCable.exe` 录制 3 秒检查 CABLE 回路是否有声音 |
 | 转写的声音很小 | 正常，AGC 已自动增益；如仍太小可对着遥控器麦克风口说话 |
 | 想看遥控器发了什么键 | 运行 `tools\KeySniffer.exe`，按遥控器看输出 |
@@ -150,6 +203,8 @@ tools\KeySniffer.exe
 | 文件 | 说明 |
 |------|------|
 | `src\RemoteMic.cs` | 主程序源码 |
+| `src\KeyMapEngine.cs` / `KeyMapConfig.cs` / `KeyMapper.cs` | 按键映射引擎（JSON 配置 + 手势识别 + 热键注入） |
+| `src\KeyComboSender.cs` / `KeySnippet.cs` / `RemoteCatalog.cs` | 映射引擎辅助类 |
 | `src\KeySniffer.cs` → `tools\KeySniffer.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
 | `src\DefDev.cs` → `tools\DefDev.exe` | 诊断：列出/切换默认录音设备 |
 | `src\CaptureCable.cs` → `tools\CaptureCable.exe` | 诊断：录制 CABLE Output 验证音频回路 |
@@ -161,4 +216,6 @@ tools\KeySniffer.exe
 | `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
 
 ### 重新编译
-需要 .NET Framework 4.8（系统自带 csc.exe）。编译命令见 `NOTES.md` 末尾。
+需要 .NET Framework 4.8（系统自带 csc.exe）。双击 `build.bat` 即可，或编译命令见 `NOTES.md` 末尾。
+
+`keymap.json` 在 `.gitignore` 中，首次运行自动生成。

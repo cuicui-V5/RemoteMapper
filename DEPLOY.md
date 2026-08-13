@@ -35,7 +35,7 @@ tools\（按需诊断，非运行必需）：
                                               │
                               微信输入法 ←─ 读取"系统默认录音设备" ─ 录到遥控器的声音
                                 ↑
-                RemoteMic 注入 [右Alt+逗号] 热键 ─ 触发微信输入法语音录入
+                RemoteMic 注入 [voice.hotkey] 热键 ─ 触发微信输入法语音录入
 ```
 
 > ⚠️ **关键约束**：微信输入法**只能用"系统默认录音设备"**，不能在输入法里单独选设备。这就是为什么程序必须在使用时临时把默认设备切到 CABLE Output。
@@ -74,8 +74,8 @@ tools\（按需诊断，非运行必需）：
 1. 下载安装：https://z.weixin.qq.com/
 2. 安装后切到微信输入法，打开**设置**：
    - 找到「**语音输入**」功能，确保**开启**
-   - 确认语音输入快捷键 = **右 Alt + 逗号（`,`）**（默认即是；如被占用请改回此项）
-3. **验证快捷键**：在任意文本框按 `右Alt + 逗号`，应弹出语音录入浮窗并开始录音
+   - 查看**语音输入快捷键**是什么（默认填入 `keymap.json` 的 `voice.hotkey`，不一致则改这里）
+3. **验证快捷键**：在任意文本框按你在输入法里看到的语音输入快捷键，应弹出语音录入浮窗并开始录音
 
 > 排错：如果物理键都唤不起语音录入，检查微信输入法设置里语音输入是否开启、快捷键是否正确、是否有别的软件抢占了该快捷键。
 
@@ -131,7 +131,7 @@ tools\（按需诊断，非运行必需）：
 | `[1/4] remote NOT FOUND` | 遥控器未连接或休眠。按几下遥控器任意键唤醒，确认蓝牙列表里是"已连接"，再启动程序。若仍不行：删除配对重新配对 |
 | `[2/4]` 反复重试失败 | BLE 服务未就绪，多发生在刚配对后。等 10 秒重启程序 |
 | `[DEV] CABLE Output not found` | VB-CABLE 没装好或没重启。回到第 2 步确认录音设备里有 `CABLE Output` |
-| 程序一切正常，但微信输入法**不弹出** | 先用**物理键盘**按 `右Alt+逗号`：手动也不弹 = 微信输入法设置问题（第 3 步）；手动能弹 = 重启 RemoteMic 再试 |
+| 程序一切正常，但微信输入法**不弹出** | 先用**物理键盘**按 `voice.hotkey` 配的热键：手动也不弹 = 微信输入法设置问题（第 3 步）；手动能弹 = 重启 RemoteMic 再试 |
 | 微信输入法弹出但**转写不出文字** | CABLE 音频回路没通。运行 `tools\CaptureCable.exe`（按住遥控器说话录 3 秒），回放听有没有声音 |
 | 转写的声音很小/断续 | 对着遥控器麦克风说话；属正常（程序已做 AGC 自动增益） |
 | 双击 exe 窗口一闪而过 | 改用 `debug.bat` 启动，窗口会停留显示错误信息 |
@@ -145,6 +145,8 @@ tools\（按需诊断，非运行必需）：
 
 **前置**：目标机器有 .NET Framework 4.8（Win10/11 自带 `csc.exe`，无需安装 SDK）。
 
+双击 `build.bat` 即可，或手动：
+
 ```bat
 cd /d D:\RemoteMapper
 
@@ -153,10 +155,14 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
   /r:"C:\Windows\System32\WinMetadata\Windows.Foundation.winmd" ^
   /r:"C:\Windows\System32\WinMetadata\Windows.Storage.winmd" ^
   /r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll" ^
-  /out:RemoteMic.exe src\RemoteMic.cs
+  /r:System.Web.Extensions.dll ^
+  /r:Microsoft.CSharp.dll ^
+  /out:RemoteMic.exe ^
+  src\RemoteMic.cs src\KeyMapEngine.cs src\KeyMapConfig.cs src\KeyMapper.cs ^
+  src\KeyComboSender.cs src\KeySnippet.cs src\RemoteCatalog.cs
 ```
 
-4 个引用缺一不可（Windows.Storage.winmd 提供 IBuffer；System.Runtime 提供异步扩展）。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件，在项目根目录编译：`csc /out:tools\X.exe src\X.cs`。
+WinRT 引用提供 BLE/异步支持；System.Web.Extensions 提供 JSON 解析；Microsoft.CSharp 提供 CODE 动态代码片段。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件：`csc /out:tools\X.exe src\X.cs`。
 
 ---
 
@@ -170,8 +176,9 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
 
 ### B2. 换一个语音输入法 / 换快捷键
 
-热键在 `src\RemoteMic.cs` 的 `KeySim` 里定义为 `VK_RMENU`（右 Alt, 0xA5）+ `VK_OEM_COMMA`（逗号, 0xBC）。
-若要改成别的组合（如 `Ctrl+Space`），修改这两个常量并调整 `HoldCombo/ReleaseCombo` 的扩展键标志后重新编译。
+语音热键在 `keymap.json` 的 `voice.hotkey` 字段配置，无需改代码、无需重编译。请填入你所用输入法的语音输入快捷键（程序初始默认 `RALT+OEM_COMMA`）。改成别的组合（如 `LCTRL+SPACE`）后重启 RemoteMic 即可。
+
+键名参考：`LCTRL`/`RCTRL`/`LALT`/`RALT`/`LSHIFT`/`RSHIFT`/`LWIN`/`RWIN` + 字母/数字/F键/OEM键。
 
 ### B3. 不自动切换录音设备（手动固定）
 
@@ -183,6 +190,6 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
 
 - **BLE ATVV 协议**：小米遥控器的语音数据走蓝牙 GATT 服务 `ab5e0001-…`，IMA ADPCM @16kHz 编码，程序实时解码
 - **VB-CABLE**：提供一对虚拟播放/录音设备，让程序能把解码音频"喂"给微信输入法
-- **WH_KEYBOARD_LL 钩子**：拦截遥控器语音键发出的 F5（F5 会污染注入的热键）。注入热键时**临时卸载钩子**避免 marshaling 干扰，注入后由泵线程重新挂上
+- **WH_KEYBOARD_LL 钩子**：一钩两用——(1) 吞掉遥控器语音键发出的 F5（会污染注入的热键）(2) 将其他键路由到 KeyMapper 引擎做可配置映射。注入热键时**临时卸载钩子**避免 marshaling 干扰，注入后由泵线程重新挂上
 - **IPolicyConfig COM**：用于临时切换系统默认录音设备（仅在使用期间）
 - **运行时零依赖**：编译后的 `.exe` 不携带任何外部 dll，所有依赖（WinRT/COM/.NET 4.8）均由 Windows 提供

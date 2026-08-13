@@ -153,12 +153,17 @@ RemoteMic.exe        # 前台调试用；后台用 start.vbs（隐藏窗口，�
 
 ### 编译命令
 ```bash
+# 双击 build.bat 即可，或手动：
 C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe /nologo /target:exe /platform:x64 \
   /r:C:\\Windows\\System32\\WinMetadata\\Windows.Devices.winmd \
   /r:C:\\Windows\\System32\\WinMetadata\\Windows.Foundation.winmd \
   /r:C:\\Windows\\System32\\WinMetadata\\Windows.Storage.winmd \
   /r:C:\\Windows\\Microsoft.NET\\assembly\\GAC_MSIL\\System.Runtime\\v4.0_4.0.0.0__b03f5f7f11d50a3a\\System.Runtime.dll \
-  /out:RemoteMic.exe src\RemoteMic.cs
+  /r:System.Web.Extensions.dll \
+  /r:Microsoft.CSharp.dll \
+  /out:RemoteMic.exe \
+  src\RemoteMic.cs src\KeyMapEngine.cs src\KeyMapConfig.cs src\KeyMapper.cs \
+  src\KeyComboSender.cs src\KeySnippet.cs src\RemoteCatalog.cs
 ```
 
 ## 技术栈约束
