@@ -1,0 +1,43 @@
+# logs & diagnostics
+*.log
+RemoteMic.log
+
+# build intermediates
+*.pdb
+*.obj
+*.tlog
+*.recipe
+*.lastcodeanalysissucceeded
+*.nativecodeanalysis.xml
+obj/
+bin/
+.vs/
+driver/**/x64/
+tests/*.exe
+RemoteMic.new.exe
+
+# captures / large temporary diagnostics
+captures/
+*.zip
+*.etl
+*.cfa
+*.curf
+
+# test audio captures
+*.wav
+*.bin
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+nul
+NUL
+
+# delivery package (build artifact, regenerated on demand)
+dist/
+
+# Pi Agent
+.pi/

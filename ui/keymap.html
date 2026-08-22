@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteMapper</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="icon" href="/app.png" type="image/png" sizes="256x256">
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --slot: #f1f3f7;
+    --slot-hover: #e5e9f0;
+    --line: #dbe0e8;
+    --text: #191c21;
+    --mute: #828894;
+    --accent: #2563eb;
+    --accent-soft: #eaf0fd;
+    --accent-hover: #1d4ed8;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    user-select: none;
+  }
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 24px 16px;
+    gap: 12px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 750;
+    letter-spacing: -0.02em;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-tabs {
+    display: flex;
+    background: #e2e8f0;
+    padding: 3px;
+    border-radius: 10px;
+    gap: 4px;
+  }
+  .tab-btn {
+    border: 0;
+    background: transparent;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tab-btn.active {
+    background: #fff;
+    color: var(--accent);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .voice-badge-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .voice-badge-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .device-tag {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #059669;
+    border-radius: 10px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+
+  .view-container {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+  .tab-view {
+    position: absolute;
+    inset: 0;
+    display: none;
+    height: 100%;
+  }
+  .tab-view.active {
+    display: flex;
+  }
+
+  .stage {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) auto minmax(280px, 1fr);
+    align-items: center;
+    gap: 16px;
+  }
+  .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 28px;
+    min-width: 0;
+    z-index: 2;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 14px 16px 16px;
+    box-shadow: var(--shadow);
+    border: 1.5px solid transparent;
+    transition: all 0.18s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: #cbd5e1;
+  }
+  .card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-lg);
+  }
+  .card h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #1e293b;
+  }
+  .card h3 .icon {
+    font-size: 16px;
+    opacity: 0.85;
+  }
+  .slots {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .slot {
+    background: var(--slot);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: all 0.12s ease;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .slot:hover {
+    background: var(--slot-hover);
+    border-color: #cbd5e1;
+  }
+  .slot small {
+    display: flex;
+    align-items: center;
+    color: var(--mute);
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .slot b {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+  }
+  .slot.empty b {
+    color: #94a3b8;
+    font-weight: 500;
+  }
+  .rep {
+    margin-left: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  .remote-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    z-index: 2;
+  }
+  .remote-photo {
+    position: relative;
+    height: 100%;
+    max-height: 560px;
+  }
+  .remote-photo img {
+    display: block;
+    height: 100%;
+    width: auto;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+    filter: drop-shadow(0 12px 28px rgba(0,0,0,0.12));
+  }
+  .hit {
+    position: absolute;
+    border: 0;
+    background: rgba(37, 99, 235, 0);
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, transform 0.15s;
+    outline: none;
+  }
+  .hit:hover {
+    background: rgba(37, 99, 235, 0.28);
+    transform: scale(1.08);
+  }
+  .hit.voice-hit:hover {
+    background: rgba(220, 38, 38, 0.28);
+  }
+
+  .json-pane {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #0f172a;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid #1e293b;
+  }
+  .json-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    flex-shrink: 0;
+  }
+  .json-toolbar .btns {
+    display: flex;
+    gap: 8px;
+  }
+  .json-btn {
+    border: 0;
+    background: #334155;
+    color: #e2e8f0;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .json-btn:hover {
+    background: #475569;
+  }
+  .json-btn.primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .json-btn.primary:hover {
+    background: var(--accent-hover);
+  }
+  .json-msg {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  .json-msg.error { color: #f87171; }
+  .json-msg.success { color: #4ade80; }
+  .json-editor {
+    flex: 1;
+    width: 100%;
+    background: transparent;
+    color: #f8fafc;
+    border: 0;
+    padding: 16px;
+    font-family: "Cascadia Code", "Fira Code", Consolas, Menlo, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    resize: none;
+    outline: none;
+    tab-size: 2;
+    overflow: auto;
+    user-select: text;
+  }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .modal.show {
+    display: flex;
+    opacity: 1;
+  }
+  .sheet {
+    background: #fff;
+    border-radius: 18px;
+    padding: 24px;
+    width: 380px;
+    max-width: 90vw;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.16);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes popIn {
+    from { transform: scale(0.94); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .sheet h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 750;
+    color: #0f172a;
+  }
+  .sheet p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--mute);
+    line-height: 1.45;
+  }
+  .choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .choices button {
+    background: var(--slot);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .choices button:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+  }
+  .choices button.danger {
+    color: var(--danger);
+  }
+  .choices button.danger:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+  }
+  .hold-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+  }
+  .field {
+    display: flex;
+    gap: 8px;
+  }
+  .field input {
+    flex: 1;
+    background: var(--slot);
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
+    outline: none;
+    color: #0f172a;
+  }
+  .field input:focus {
+    border-color: var(--accent);
+    background: #fff;
+  }
+  .field button.ok {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .field button.ok:hover { background: var(--accent-hover); }
+  .hint {
+    background: #eff6ff;
+    border: 1px dashed #93c5fd;
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    font-size: 13px;
+    color: #1e40af;
+    line-height: 1.5;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>🎮 按键映射</h1>
+      <div class="nav-tabs">
+        <button class="tab-btn active" id="tabVisual">图形化映射</button>
+        <button class="tab-btn" id="tabJson">JSON 纯文本</button>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="voice-badge-btn" id="btnVoiceHotkey" title="点击设置语音输入法唤醒热键">
+        <span>🎙️ 语音热键:</span>
+        <b id="voiceHotkeyDisplay" style="color:var(--accent)">加载中...</b>
+      </button>
+      <div class="device-tag"><span class="dot"></span>小米遥控器 2 Pro</div>
+    </div>
+  </header>
+
+  <div class="view-container">
+    <div class="tab-view active" id="viewVisual">
+      <div class="stage" id="stage">
+        <svg class="wires" id="wires"></svg>
+        <div class="col" id="left"></div>
+        <div class="remote-wrap">
+          <div class="remote-photo" id="photo">
+            <img src="/remote.png" alt="小米蓝牙遥控器 2 Pro" id="remoteImg">
+            <button class="hit" data-key="power" title="电源键"></button>
+            <button class="hit voice-hit" data-key="voice" title="语音键 (点击设置唤醒热键)"></button>
+            <button class="hit" data-key="home" title="主页键"></button>
+            <button class="hit" data-key="menu" title="菜单键"></button>
+            <button class="hit" data-key="tv" title="直播键"></button>
+          </div>
+        </div>
+        <div class="col" id="right"></div>
+      </div>
+    </div>
+
+    <div class="tab-view" id="viewJson">
+      <div class="json-pane">
+        <div class="json-toolbar">
+          <div class="btns">
+            <button class="json-btn primary" id="btnSaveJson">💾 保存并生效</button>
+            <button class="json-btn" id="btnFormatJson">🪄 格式化</button>
+            <button class="json-btn" id="btnReloadJson">🔄 重新加载</button>
+          </div>
+          <span class="json-msg" id="jsonStatus">就绪</span>
+        </div>
+        <textarea class="json-editor" id="jsonArea" spellcheck="false" placeholder="正在读取 keymap.json ..."></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h2 id="modalTitle">编辑按键</h2>
+    <div class="choices" id="choices">
+      <button data-act="record">录制快捷键</button>
+      <button data-act="launch">启动程序…</button>
+      <button data-act="cmd">运行命令…</button>
+      <button data-act="taskview">任务视图</button>
+      <button data-act="code">运行代码…</button>
+      <button data-act="clear" class="danger">清除</button>
+    </div>
+    <label class="hold-opt hidden" id="repeatOpt"><input type="checkbox" id="repeatBox"> 长按连发</label>
+    <div class="hint hidden" id="recordHint">请在键盘上按下目标快捷键<br>再按主键完成 · Esc 取消</div>
+    <div class="field hidden" id="cmdField">
+      <input id="cmdInput" placeholder="例如 start ms-settings:network">
+      <button class="ok" id="cmdOk">确定</button>
+    </div>
+    <input id="recInput" autocomplete="off" spellcheck="false" style="position:fixed;left:-99px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0">
+  </div>
+</div>
+
+<div class="modal" id="voiceModal">
+  <div class="sheet">
+    <h2>🎙️ 设置语音唤醒快捷键</h2>
+    <p>当按住遥控器语音键说话时，程序会自动注入此快捷键以唤起输入法。请确保与你的语音输入法设置一致。</p>
+    <div class="field">
+      <input id="voiceInput" placeholder="例如 RALT+OEM_COMMA 或 F8">
+      <button class="ok" id="btnSaveVoice">保存</button>
+    </div>
+    <div class="choices">
+      <button id="btnRecVoice">🎹 录制快捷键</button>
+      <button id="btnDefaultVoice">恢复默认 (RAlt+,)</button>
+    </div>
+    <div class="hint hidden" id="voiceRecHint">请在键盘上按下目标语音热键<br>Esc 取消</div>
+  </div>
+</div>
+
+<script>
+const LEFT = ["power", "home"];
+const RIGHT = ["menu", "tv"];
+const ICONS = {
+  power: "⏻",
+  home: "⌂",
+  menu: "☰",
+  tv: "▣"
+};
+
+let state = { enabled: true, voice: { hotkey: "RALT+OEM_COMMA", label: "右Alt + ," }, keys: [] };
+let selected = "power";
+let editing = null;
+let rec = { on: false, held: [], combo: [], forVoice: false };
+
+const $ = id => document.getElementById(id);
+const keyOf = id => state.keys.find(k => k.id === id);
+function slotLabel(s) { return !s || s.kind === "empty" ? "未设置" : (s.label || "未设置"); }
+
+$("tabVisual").addEventListener("click", () => switchTab("visual"));
+$("tabJson").addEventListener("click", () => switchTab("json"));
+
+function switchTab(t) {
+  $("tabVisual").classList.toggle("active", t === "visual");
+  $("tabJson").classList.toggle("active", t === "json");
+  $("viewVisual").classList.toggle("active", t === "visual");
+  $("viewJson").classList.toggle("active", t === "json");
+  if (t === "visual") relayout();
+  if (t === "json") loadRawJson();
+}
+
+function cardHtml(k) {
+  const icon = ICONS[k.id] || "⌨️";
+  const holdTag = k.repeat ? '<span class="rep">连发</span>' : "";
+  const mk = (slot, kind) => {
+    const empty = !slot || slot.kind === "empty";
+    const name = kind === "click" ? "单击" : kind === "dbl" ? "双击" : "长按";
+    const label = slotLabel(slot);
+    const fullText = slot && slot.command ? (slot.kind === "launch" ? "打开: " + slot.command : slot.command) : label;
+    return `<button class="slot ${empty ? "empty" : ""}" data-slot="${kind}" title="${escapeHtml(fullText)}">
+      <small>${name}${kind === "hold" ? holdTag : ""}</small>
+      <b>${escapeHtml(label)}</b>
+    </button>`;
+  };
+  return `<article class="card" data-key="${k.id}">
+    <h3><span class="icon">${icon}</span> ${k.title}</h3>
+    <div class="slots">${mk(k.click, "click")}${mk(k.dbl, "dbl")}${mk(k.hold, "hold")}</div>
+  </article>`;
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function render() {
+  $("left").innerHTML = LEFT.map(id => cardHtml(keyOf(id) || { id, title: id, mode: "editable" })).join("");
+  $("right").innerHTML = RIGHT.map(id => cardHtml(keyOf(id) || { id, title: id, mode: "editable" })).join("");
+  
+  if (state.voice) {
+    $("voiceHotkeyDisplay").textContent = state.voice.label || state.voice.hotkey || "RAlt + ,";
+  }
+
+  document.querySelectorAll(".card").forEach(el => {
+    el.classList.toggle("active", el.dataset.key === selected);
+    el.addEventListener("click", () => select(el.dataset.key));
+  });
+  document.querySelectorAll(".slot[data-slot]").forEach(btn => {
+    btn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      openEditor(btn.closest(".card").dataset.key, btn.dataset.slot);
+    });
+  });
+  relayout();
+}
+
+const HITS = {
+  power: { x: 0.3508, y: 0.0855, s: 0.1332 },
+  voice: { x: 0.6492, y: 0.0855, s: 0.1332 },
+  home:  { x: 0.3796, y: 0.4938, s: 0.1909 },
+  menu:  { x: 0.3796, y: 0.5875, s: 0.1909 },
+  tv:    { x: 0.6204, y: 0.5875, s: 0.1909 }
+};
+
+function layoutToImage() {
+  const img = $("remoteImg");
+  const photo = $("photo");
+  const wrap = photo && photo.parentElement;
+  const stage = $("stage");
+  if (!img || !stage || !photo || !wrap || !img.naturalWidth) return;
+  const sr = stage.getBoundingClientRect();
+  if (sr.height < 8) return;
+
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const h = Math.min(sr.height, 560);
+  const w = h * aspect;
+  wrap.style.width = Math.round(w) + "px";
+  wrap.style.height = Math.round(h) + "px";
+
+  const ir = img.getBoundingClientRect();
+  const pr = photo.getBoundingClientRect();
+  
+  document.querySelectorAll(".hit").forEach(el => {
+    const p = HITS[el.dataset.key];
+    if (!p) return;
+    const sizeW = ir.width * p.s;
+    const sizeH = ir.width * (p.sh || p.s);
+    el.style.left = (ir.left - pr.left + p.x * ir.width - sizeW / 2) + "px";
+    el.style.top = (ir.top - pr.top + p.y * ir.height - sizeH / 2) + "px";
+    el.style.width = sizeW + "px";
+    el.style.height = sizeH + "px";
+  });
+}
+
+function select(id) {
+  selected = id;
+  document.querySelectorAll(".card").forEach(el => el.classList.toggle("active", el.dataset.key === id));
+  drawWires();
+}
+
+function drawWires() {
+  const svg = $("wires");
+  const stage = $("stage");
+  if (!svg || !stage) return;
+  svg.innerHTML = "";
+  const sr = stage.getBoundingClientRect();
+  if (sr.width < 10 || sr.height < 10) return;
+
+  const allKeys = LEFT.concat(RIGHT);
+  allKeys.forEach(id => {
+    const hit = document.querySelector(`.hit[data-key="${id}"]`);
+    const card = document.querySelector(`.card[data-key="${id}"]`);
+    if (!hit || !card) return;
+    const hr = hit.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    const leftSide = LEFT.includes(id);
+
+    const x1 = hr.left - sr.left + hr.width / 2;
+    const y1 = hr.top - sr.top + hr.height / 2;
+    const x2 = leftSide ? (cr.right - sr.left) : (cr.left - sr.left);
+    const y2 = cr.top - sr.top + cr.height / 2;
+
+    const dx = Math.min(Math.abs(x2 - x1) * 0.5, 90);
+    const c1 = leftSide ? x1 - dx : x1 + dx;
+    const c2 = leftSide ? x2 + dx : x2 - dx;
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", `M ${x1} ${y1} C ${c1} ${y1}, ${c2} ${y2}, ${x2} ${y2}`);
+    path.setAttribute("fill", "none");
+    const on = id === selected;
+    path.setAttribute("stroke", on ? "#2563eb" : "#cbd5e1");
+    path.setAttribute("stroke-width", on ? "2.2" : "1.2");
+    svg.appendChild(path);
+  });
+}
+
+async function load() {
+  const res = await fetch("/api/state");
+  state = await res.json();
+  state.enabled = true;
+  render();
+  select(selected);
+}
+
+async function save() {
+  state.enabled = true;
+  try {
+    const res = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(state)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    state = await res.json();
+    render();
+  } catch (err) {
+    alert("保存失败：" + err);
+  }
+}
+
+async function loadRawJson() {
+  $("jsonStatus").textContent = "正在加载...";
+  $("jsonStatus").className = "json-msg";
+  try {
+    const res = await fetch("/api/raw-json");
+    const data = await res.json();
+    $("jsonArea").value = data.json || "";
+    $("jsonStatus").textContent = "已就绪";
+  } catch (err) {
+    $("jsonStatus").textContent = "读取失败: " + err;
+    $("jsonStatus").className = "json-msg error";
+  }
+}
+
+$("btnReloadJson").addEventListener("click", loadRawJson);
+
+$("btnFormatJson").addEventListener("click", () => {
+  try {
+    const obj = JSON.parse($("jsonArea").value);
+    $("jsonArea").value = JSON.stringify(obj, null, 2);
+    $("jsonStatus").textContent = "格式化完成";
+    $("jsonStatus").className = "json-msg success";
+  } catch (e) {
+    $("jsonStatus").textContent = "语法错误: " + e.message;
+    $("jsonStatus").className = "json-msg error";
+  }
+});
+
+$("btnSaveJson").addEventListener("click", async () => {
+  $("jsonStatus").textContent = "正在保存...";
+  $("jsonStatus").className = "json-msg";
+  try {
+    const raw = $("jsonArea").value;
+    JSON.parse(raw);
+    const res = await fetch("/api/raw-json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ json: raw })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    state = await res.json();
+    $("jsonStatus").textContent = "✅ 保存成功并已重载配置！";
+    $("jsonStatus").className = "json-msg success";
+    render();
+  } catch (err) {
+    $("jsonStatus").textContent = "❌ 保存失败: " + err.message;
+    $("jsonStatus").className = "json-msg error";
+  }
+});
+
+document.querySelectorAll(".hit").forEach(el => {
+  el.addEventListener("click", () => {
+    if (el.dataset.key === "voice") {
+      openVoiceModal();
+      return;
+    }
+    select(el.dataset.key);
+    const k = keyOf(el.dataset.key);
+    if (k && k.mode === "editable") openEditor(k.id, "click");
+  });
+});
+
+function relayout() { layoutToImage(); drawWires(); }
+window.addEventListener("resize", relayout);
+$("remoteImg").addEventListener("load", relayout);
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(relayout);
+  ro.observe($("stage"));
+  ro.observe($("remoteImg"));
+}
+
+function openEditor(id, slot) {
+  const k = keyOf(id);
+  if (!k || k.mode !== "editable") return;
+  select(id);
+  editing = { id, slot };
+  $("modalTitle").textContent = k.title + " · " + (slot === "click" ? "单击" : slot === "dbl" ? "双击" : "长按");
+  $("choices").classList.remove("hidden");
+  $("recordHint").classList.add("hidden");
+  $("cmdField").classList.add("hidden");
+  $("repeatOpt").classList.toggle("hidden", slot !== "hold");
+  $("repeatBox").checked = !!k.repeat;
+  rec.on = false;
+  $("modal").classList.add("show");
+}
+
+function closeModal() {
+  rec.on = false;
+  $("modal").classList.remove("show");
+  $("voiceModal").classList.remove("show");
+}
+$("modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+$("voiceModal").addEventListener("click", e => { if (e.target.id === "voiceModal") closeModal(); });
+
+$("repeatBox").addEventListener("change", () => {
+  const k = editing && keyOf(editing.id);
+  if (!k) return;
+  k.repeat = $("repeatBox").checked;
+  save();
+});
+
+function setSlot(kind, extra) {
+  const k = keyOf(editing.id);
+  const slot = { kind, combo: "", command: "", label: "未设置" };
+  if (kind === "combo") {
+    slot.combo = extra;
+    slot.label = extra.replace(/LCTRL/g,"Ctrl").replace(/RCTRL/g,"RCtrl").replace(/LALT/g,"Alt").replace(/RALT/g,"RAlt").replace(/LSHIFT/g,"Shift").replace(/LWIN/g,"Win").replace(/OEM_COMMA/g,",");
+  }
+  if (kind === "taskview") slot.label = "任务视图";
+  if (kind === "code") { slot.command = extra; slot.label = "代码"; }
+  if (kind === "launch") { slot.command = extra; slot.label = "打开 " + (extra.split(/[\\/]/).pop() || extra).replace(/\.[^.]+$/, ""); }
+  if (kind === "cmd") { slot.command = extra; slot.label = extra; }
+  if (kind === "empty") { slot.kind = "empty"; slot.label = "未设置"; }
+  k[editing.slot] = slot;
+  closeModal();
+  save();
+}
+
+$("choices").addEventListener("click", async e => {
+  const act = e.target.getAttribute("data-act");
+  if (!act) return;
+  if (act === "clear") return setSlot("empty");
+  if (act === "taskview") return setSlot("taskview");
+  if (act === "code") {
+    $("choices").classList.add("hidden");
+    $("cmdField").classList.remove("hidden");
+    $("cmdInput").value = "DateTime.Now.ToString(\"HH:mm\")";
+    $("cmdInput").placeholder = "C# 表达式，返回要输入的文本";
+    $("cmdInput").dataset.kind = "code";
+    $("cmdInput").focus();
+    return;
+  }
+  if (act === "record") {
+    $("choices").classList.add("hidden");
+    $("recordHint").classList.remove("hidden");
+    rec = { on: true, held: [], combo: [], forVoice: false };
+    setTimeout(function() { $("recInput").focus(); }, 0);
+    return;
+  }
+  if (act === "launch") {
+    const r = await fetch("/api/pick-exe", { method: "POST" });
+    const j = await r.json();
+    if (!j.path) return;
+    const args = prompt("启动参数（可留空）", "") || "";
+    setSlot("launch", args.trim() ? '"' + j.path + '" ' + args.trim() : j.path);
+    return;
+  }
+  if (act === "cmd") {
+    $("choices").classList.add("hidden");
+    $("cmdField").classList.remove("hidden");
+    $("cmdInput").value = "";
+    $("cmdInput").placeholder = "例如 start ms-settings:network";
+    $("cmdInput").dataset.kind = "cmd";
+    $("cmdInput").focus();
+  }
+});
+
+$("cmdOk").addEventListener("click", () => {
+  const v = $("cmdInput").value.trim();
+  if (!v) return;
+  setSlot($("cmdInput").dataset.kind === "code" ? "code" : "cmd", v);
+});
+
+$("btnVoiceHotkey").addEventListener("click", openVoiceModal);
+
+function openVoiceModal() {
+  $("voiceInput").value = (state.voice && state.voice.hotkey) || "RALT+OEM_COMMA";
+  $("voiceRecHint").classList.add("hidden");
+  rec.on = false;
+  $("voiceModal").classList.add("show");
+}
+
+$("btnSaveVoice").addEventListener("click", async () => {
+  const hk = $("voiceInput").value.trim();
+  if (!hk) return;
+  try {
+    const res = await fetch("/api/voice-hotkey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ hotkey: hk })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    state = await res.json();
+    closeModal();
+    render();
+  } catch (err) {
+    alert("保存语音热键失败: " + err);
+  }
+});
+
+$("btnDefaultVoice").addEventListener("click", () => {
+  $("voiceInput").value = "RALT+OEM_COMMA";
+});
+
+$("btnRecVoice").addEventListener("click", () => {
+  $("voiceRecHint").classList.remove("hidden");
+  rec = { on: true, held: [], combo: [], forVoice: true };
+  setTimeout(function() { $("recInput").focus(); }, 0);
+});
+
+const CODE = {
+  Backspace:"BACK", Enter:"ENTER", Escape:"ESC", Space:"SPACE", Tab:"TAB",
+  Delete:"DELETE", Insert:"INSERT", Home:"HOME", End:"END",
+  PageUp:"PGUP", PageDown:"PGDN", ArrowLeft:"LEFT", ArrowUp:"UP",
+  ArrowRight:"RIGHT", ArrowDown:"DOWN", Comma:"OEM_COMMA", Period:"OEM_PERIOD",
+  Minus:"OEM_MINUS", Equal:"OEM_PLUS", Slash:"OEM_2", Backquote:"OEM_3",
+  BracketLeft:"OEM_4", Backslash:"OEM_5", BracketRight:"OEM_6", Semicolon:"OEM_1",
+  Quote:"OEM_7"
+};
+function isModCode(code) {
+  return /^(Control|Alt|Shift|Meta)(Left|Right)?$/.test(code || "");
+}
+function mainKeyFromEvent(ev) {
+  const code = ev.code || "";
+  if (isModCode(code)) return "";
+  if (CODE[code]) return CODE[code];
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  if (/^Numpad([0-9])$/.test(code)) return code.slice(6);
+  const kc = ev.keyCode || ev.which || 0;
+  if (kc >= 65 && kc <= 90) return String.fromCharCode(kc);
+  if (kc >= 112 && kc <= 135) return "F" + (kc - 111);
+  if (kc === 188) return "OEM_COMMA";
+  if (kc === 190) return "OEM_PERIOD";
+  if (kc === 191) return "OEM_2";
+  if (kc === 186) return "OEM_1";
+  if (kc === 187) return "OEM_PLUS";
+  if (kc === 189) return "OEM_MINUS";
+  if (kc === 192) return "OEM_3";
+  if (kc === 219) return "OEM_4";
+  if (kc === 220) return "OEM_5";
+  if (kc === 221) return "OEM_6";
+  if (kc === 222) return "OEM_7";
+  return "";
+}
+function modsFromEvent(ev) {
+  const mods = [];
+  if (ev.ctrlKey) mods.push("LCTRL");
+  if (ev.altKey) mods.push("LALT");
+  if (ev.shiftKey) mods.push("LSHIFT");
+  if (ev.metaKey) mods.push("LWIN");
+  return mods;
+}
+function onRecDown(ev) {
+  if (!rec.on) {
+    if (ev.key === "Escape" && ($("modal").classList.contains("show") || $("voiceModal").classList.contains("show"))) closeModal();
+    return;
+  }
+  ev.preventDefault();
+  ev.stopPropagation();
+  if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+  if (ev.key === "Escape" || ev.code === "Escape") { closeModal(); return; }
+  if (ev.repeat) return;
+  const mods = modsFromEvent(ev);
+  if (mods.length) rec.held = mods.slice();
+  const main = mainKeyFromEvent(ev);
+  if (!main) {
+    rec.combo = rec.held.slice();
+    const hint = (rec.held.join(" + ") || "…") + "<br>再按主键完成 · Esc 取消";
+    if (rec.forVoice) $("voiceRecHint").innerHTML = hint;
+    else $("recordHint").innerHTML = hint;
+    return;
+  }
+  rec.combo = rec.held.concat([main]);
+  finishRecord();
+}
+function onRecUp(ev) {
+  if (!rec.on) return;
+  ev.preventDefault();
+  const main = mainKeyFromEvent(ev);
+  if (!main) return;
+  const mods = rec.held.length ? rec.held.slice() : modsFromEvent(ev);
+  rec.combo = mods.concat([main]);
+  finishRecord();
+}
+function finishRecord() {
+  if (!rec.on || !rec.combo.length) return;
+  const comboStr = rec.combo.join("+");
+  rec.on = false;
+  if (rec.forVoice) {
+    $("voiceInput").value = comboStr;
+    $("voiceRecHint").classList.add("hidden");
+  } else {
+    setSlot("combo", comboStr);
+  }
+}
+window.addEventListener("keydown", onRecDown, true);
+window.addEventListener("keyup", onRecUp, true);
+
+load().catch(err => { document.body.innerHTML = "<p style='padding:40px'>无法连接映射服务：" + err + "</p>"; });
+</script>
+</body>
+</html>

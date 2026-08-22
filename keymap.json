@@ -1,0 +1,92 @@
+{
+  "enabled": true,
+  "voice": {
+    "hotkey": "RALT+OEM_COMMA"
+  },
+  "keys": [
+    {
+      "id": "power",
+      "name": "电源键",
+      "vk": "0xFF",
+      "click": {
+        "kind": "combo",
+        "tap": true,
+        "keys": "LALT+TAB",
+        "command": null,
+        "ms": 0,
+        "delay": 0,
+        "interval": 0
+      },
+      "dbl": null,
+      "hold": {
+        "kind": "cmd",
+        "tap": true,
+        "keys": null,
+        "command": "powershell (Add-Type '[DllImport(\\\"user32.dll\\\")]public static extern int SendMessage(int hWnd,int hMsg,int wParam,int lParam);' -Name a -PassThru)::SendMessage(-1,0x0112,0xF170,2)",
+        "ms": 600,
+        "delay": 0,
+        "interval": 0
+      },
+      "repeat": null
+    },
+    {
+      "id": "home",
+      "name": "主页键",
+      "vk": "0x24",
+      "click": {
+        "kind": "combo",
+        "tap": true,
+        "keys": "LWIN+D",
+        "command": null,
+        "ms": 0,
+        "delay": 0,
+        "interval": 0
+      },
+      "dbl": null,
+      "hold": null,
+      "repeat": null
+    },
+    {
+      "id": "menu",
+      "name": "菜单键",
+      "vk": "0x5D",
+      "click": {
+        "kind": "combo",
+        "tap": false,
+        "keys": "SPACE",
+        "command": null,
+        "ms": 0,
+        "delay": 0,
+        "interval": 0
+      },
+      "dbl": null,
+      "hold": null,
+      "repeat": null
+    },
+    {
+      "id": "tv",
+      "name": "直播键",
+      "vk": "0xC0",
+      "click": {
+        "kind": "cmd",
+        "tap": true,
+        "keys": null,
+        "command": "start https://www.douyin.com",
+        "ms": 0,
+        "delay": 0,
+        "interval": 0
+      },
+      "dbl": null,
+      "hold": {
+        "kind": "cmd",
+        "tap": true,
+        "keys": null,
+        "command": "C:\\Users\\cuicuiV5\\Desktop\\切到ps5.bat",
+        "ms": 600,
+        "delay": 0,
+        "interval": 0
+      },
+      "repeat": null
+    }
+  ]
+}
