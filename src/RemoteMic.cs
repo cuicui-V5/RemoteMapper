@@ -177,7 +177,7 @@ class RemoteMic {
         // 3. open CABLE
         Console.Write("[3/4] opening VB-Cable Input...");
         streamer = new WaveStreamer();
-        if (!streamer.Start("CABLE Input", SR)) {
+        if (!streamer.Start(SR)) {
             Console.WriteLine(" CABLE not found!");
             Console.WriteLine(">> Key mapping panel is still available from the tray icon.");
             await IdleForever();
@@ -572,16 +572,31 @@ class WaveStreamer {
     volatile bool running;
     Thread thr;
 
-    public bool Start(string nameContains, int sr) {
-        // find device
-        uint n = waveOutGetNumDevs(); uint idx = 0xFFFFFFFF; bool found = false;
+    public bool Start(int sr) {
+        // find device: look for VB-Audio Virtual Cable / CABLE Input
+        uint n = waveOutGetNumDevs();
+        uint bestIdx = 0xFFFFFFFF;
+        int bestScore = -1;
         for (uint i = 0; i < n; i++) {
             var c = new WAVEOUTCAPS();
             waveOutGetDevCaps(i, ref c, Marshal.SizeOf(c));
-            Console.WriteLine("    out["+i+"] = "+c.name);
-            if (c.name.Contains(nameContains)) { idx = i; found = true; }
+            string nm = c.name ?? "";
+            Console.WriteLine("    out[" + i + "] = " + nm);
+            int score = 0;
+            if (nm.IndexOf("CABLE Input", StringComparison.OrdinalIgnoreCase) >= 0) {
+                score = 100;
+            } else if (nm.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 || nm.IndexOf("VB-Cable", StringComparison.OrdinalIgnoreCase) >= 0) {
+                score = (nm.IndexOf("16", StringComparison.OrdinalIgnoreCase) >= 0) ? 50 : 90;
+            } else if (nm.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0) {
+                score = 60;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestIdx = i;
+            }
         }
-        if (!found) return false;
+        if (bestScore <= 0 || bestIdx == 0xFFFFFFFF) return false;
+        uint idx = bestIdx;
 
         var wfx = new WAVEFORMATEX { tag = 1, ch = 1, sr = (uint)sr, avg = (uint)(sr * 2), blk = 2, bits = 16, cb = 0 };
         int hr = waveOutOpen(out hWave, idx, ref wfx, IntPtr.Zero, IntPtr.Zero, 0);
