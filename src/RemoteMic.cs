@@ -496,6 +496,7 @@ class VoiceKeyBlocker {
 
     public static void Start() {
         pump = new Thread(() => {
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
             pumpTid = GetCurrentThreadId();
             try {
                 hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
@@ -504,10 +505,9 @@ class VoiceKeyBlocker {
                 Console.WriteLine("[F5] voice-key blocker + key mapper hook installed");
                 MSG m;
                 while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) {
-                    // re-install hook request from keyworker thread (Resume)
-                    if (m.message == WM_APP_REHOOK && hhk == IntPtr.Zero)
-                        hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
                     if (m.message == WM_TIMER && unchecked((ulong)m.wParam.ToInt64()) == keymapTimerId.ToUInt64()) {
+                        if (hhk == IntPtr.Zero)
+                            hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
                         foreach (MappedKeyEvent action in KeyMapper.TakeDueActions(GetTickCount()))
                             RemoteMic.QueueMappedKey(action);
                     }
@@ -522,16 +522,6 @@ class VoiceKeyBlocker {
     [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref MSG m);
     public static void Stop() {
         if (hhk != IntPtr.Zero) { UnhookWindowsHookEx(hhk); hhk = IntPtr.Zero; }
-    }
-    // Called from keyworker: remove hook so it cannot marshal/disrupt our
-    // injected keys. UnhookWindowsHookEx is safe from any thread.
-    public static void Suspend() {
-        if (hhk != IntPtr.Zero) { UnhookWindowsHookEx(hhk); hhk = IntPtr.Zero; }
-    }
-    // Called from keyworker: ask the pump thread (which owns the message loop)
-    // to re-install the hook. SetWindowsHookEx must run on the thread that pumps.
-    public static void Resume() {
-        PostThreadMessage(pumpTid, WM_APP_REHOOK, IntPtr.Zero, IntPtr.Zero);
     }
 }
 
@@ -665,36 +655,12 @@ class WaveStreamer {
 // ===== keyboard simulation: hold/release [Right Alt + Comma] (scan-code + dual API) =====
 class KeySim {
     [DllImport("user32.dll")]
-    static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-    [DllImport("user32.dll")]
-    static extern short MapVirtualKey(ushort uCode, uint uMapType);
-    [DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
     [DllImport("user32.dll")]
     static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
 
-    const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
-    const uint KEYEVENTF_KEYUP = 0x0002;
-    const uint KEYEVENTF_SCANCODE = 0x0008;
-    const ushort VK_RMENU = 0xA5;       // Right Alt
-    const ushort VK_OEM_COMMA = 0xBC;   // ','
-    const ushort VK_F5 = 0x74;          // remote voice button = F5 natively
-    const ushort VK_F20 = 0x83;         // remote voice button = F20 (if driver installed)
-    const uint MAPVK_VK_TO_VSC = 0;
-
-    static void Send(ushort vk, bool down) {
-        byte sc = (byte)MapVirtualKey(vk, MAPVK_VK_TO_VSC);
-        uint flags = KEYEVENTF_SCANCODE;
-        if (vk == VK_RMENU) flags |= KEYEVENTF_EXTENDEDKEY;
-        if (!down) flags |= KEYEVENTF_KEYUP;
-
-        // Voice hotkey: retain the proven SendInput + keybd_event dual path.
-        ushort[] single = new[] { vk };
-        if (down) KeyComboSender.Press(single); else KeyComboSender.Release(single);
-        keybd_event((byte)vk, sc, flags, UIntPtr.Zero);
-    }
     public static void PressMappedCombo(ushort[] combo) {
         if (!KeyComboSender.Press(combo)) Console.WriteLine("[KEYMAP] SendInput down failed");
     }
@@ -747,25 +713,19 @@ class KeySim {
         }
     }
     public static void HoldCombo() {
-        VoiceKeyBlocker.Suspend();
-        keybd_event((byte)VK_F5, (byte)MapVirtualKey(VK_F5, MAPVK_VK_TO_VSC), KEYEVENTF_KEYUP, UIntPtr.Zero);
-        keybd_event((byte)VK_F20, (byte)MapVirtualKey(VK_F20, MAPVK_VK_TO_VSC), KEYEVENTF_KEYUP, UIntPtr.Zero);
         ushort[] combo = KeyMapper.VoiceHotkey;
         if (combo != null && combo.Length > 0) {
             KeyComboSender.Release(combo);
-            Thread.Sleep(30);
+            Thread.Sleep(20);
             KeyComboSender.Press(combo);
         }
-        VoiceKeyBlocker.Resume();
         Console.WriteLine("[KEY] HOLD done (" + (combo != null ? KeyMapConfig.FormatCombo(combo) : "") + ")");
     }
     public static void ReleaseCombo() {
-        VoiceKeyBlocker.Suspend();
         ushort[] combo = KeyMapper.VoiceHotkey;
         if (combo != null && combo.Length > 0) {
             KeyComboSender.Release(combo);
         }
-        VoiceKeyBlocker.Resume();
         Console.WriteLine("[KEY] RELEASE done");
     }
 }
