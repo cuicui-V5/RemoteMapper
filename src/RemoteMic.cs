@@ -40,6 +40,38 @@ class RemoteMic {
     static int predictor = 0, stepIndex = 0;
     static short lastSample = 0;     // for cross-frame lowpass continuity
     static short prevDecoded = 0;    // for cross-frame declip continuity
+    static DateTime lastAudioFrameUtc = DateTime.MinValue;
+    static Thread audioWatchdogThread;
+
+    static void StartAudioWatchdog() {
+        audioWatchdogThread = new Thread(() => {
+            while (true) {
+                Thread.Sleep(80);
+                if (state == State.Talking) {
+                    double elapsed = (DateTime.UtcNow - lastAudioFrameUtc).TotalMilliseconds;
+                    if (elapsed > 400) {
+                        StopTalking("stream silence (" + (int)elapsed + "ms)");
+                    }
+                }
+            }
+        }) { IsBackground = true, Name = "audiowatchdog" };
+        audioWatchdogThread.Start();
+    }
+
+    static void StopTalking(string reason) {
+        if (state != State.Talking) return;
+        Console.WriteLine("[VOICE] <<< button RELEASED (" + reason + ") -> hotkey UP, stop streaming" +
+            "  (" + totalFramesPlayed + " frames, " + (DateTime.Now - sessionStart).TotalSeconds.ToString("0.0") + "s)");
+        state = State.Idle;
+        audioPending.Clear();
+        if (dumpEnabled && dumpSamples != null && dumpSamples.Count > 0) {
+            string path = "rt_dump_" + DateTime.Now.ToString("HHmmss") + ".wav";
+            WriteWav(path, dumpSamples.ToArray(), SR);
+            Console.WriteLine("[DUMP] saved " + dumpSamples.Count + " samples -> " + path);
+            dumpSamples = null;
+        }
+        if (hotkeyEnabled) keyQueue.Add(new KeyAction(KeyAction.VoiceRelease, null));
+    }
 
     // ===== ATVV negotiated parameters (updated from CAPS / AUDIO_START) =====
     static int frameSize = 120;        // bytes per audio frame (from CAPS response, default 120)
@@ -134,6 +166,7 @@ class RemoteMic {
 
         KeyMapper.Load("keymap.json");
         StartKeyWorker();
+        StartAudioWatchdog();
         KeyMapUi.Start();
         VoiceKeyBlocker.Start();
 
@@ -266,6 +299,7 @@ class RemoteMic {
     }
 
     static void CleanupBle() {
+        StopTalking("BLE cleanup");
         isConnected = false;
         chCmd = null;
         try {
@@ -290,33 +324,25 @@ class RemoteMic {
             // AUDIO_START with HTT reason: byte1 == 0x03
             if (op == 0x04 && b.Length >= 2 && b[1] == 0x03) {
                 // Voice button PRESSED (AUDIO_START with HTT reason)
+                if (state == State.Talking) {
+                    StopTalking("restart");
+                }
                 sessionId = (b.Length >= 4) ? b[3] : (byte)0;
                 Console.WriteLine("\n[VOICE] >>> button PRESSED (HTT) -> hotkey DOWN, start streaming");
                 predictor = 0; stepIndex = 0; lastSample = 0; prevDecoded = 0; agcPeak = 1000;
                 syncPending = false; audioPending.Clear();
                 totalFramesPlayed = 0; sessionStart = DateTime.Now;
+                lastAudioFrameUtc = DateTime.UtcNow;
                 if (dumpEnabled) dumpSamples = new System.Collections.Generic.List<short>();
                 state = State.Talking;
-                if (hotkeyEnabled) keyQueue.Add(new KeyAction(KeyAction.VoiceHold, null)); else Console.WriteLine("[VOICE]    (hotkey DISABLED - audio only test)");
+                if (hotkeyEnabled) keyQueue.Add(new KeyAction(KeyAction.VoiceHold, null));
             }
-            // AUDIO_STOP with HTT-release: byte1 == 0x02
-            else if (op == 0x00 && b.Length >= 2 && b[1] == 0x02) {
-                Console.WriteLine("[VOICE] <<< button RELEASED (HTT) -> hotkey UP, stop streaming" +
-                    (state == State.Talking ? "  (" + totalFramesPlayed + " frames, " + (DateTime.Now - sessionStart).TotalSeconds.ToString("0.0") + "s)" : ""));
-                state = State.Idle;
-                audioPending.Clear();
-                if (dumpEnabled && dumpSamples != null && dumpSamples.Count > 0) {
-                    string path = @"D:\Projects\RemoteMapper\rt_dump_" + DateTime.Now.ToString("HHmmss") + ".wav";
-                    WriteWav(path, dumpSamples.ToArray(), SR);
-                    Console.WriteLine("[DUMP] saved " + dumpSamples.Count + " samples -> " + path);
-                    dumpSamples = null;
-                }
-                if (hotkeyEnabled) keyQueue.Add(new KeyAction(KeyAction.VoiceRelease, null));
-            }
-            else if (op == 0x00 && b.Length >= 2 && b[1] == 0x00) {
-                Console.WriteLine("[VOICE] MIC_CLOSED");
-                state = State.Idle;
-                audioPending.Clear();
+            // Any AUDIO_STOP / MIC_CLOSED / release op:
+            else if (op == 0x00) {
+                string reason = (b.Length >= 2 && b[1] == 0x02) ? "HTT" :
+                                (b.Length >= 2 && b[1] == 0x00) ? "MIC_CLOSED" :
+                                ("0x" + (b.Length >= 2 ? b[1].ToString("X2") : "00"));
+                StopTalking(reason);
             }
             else if (op == 0x0B && b.Length >= 7) {
                 // CAPS_RESP: parse version, codec, frame size
@@ -340,6 +366,7 @@ class RemoteMic {
     static TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> MakeAudioHandler() {
         return (s, e) => {
             if (state != State.Talking) return;
+            lastAudioFrameUtc = DateTime.UtcNow;
             var b = ToB(e.CharacteristicValue);
             int fs = frameSize;
             // Fast path: exact frame, no pending fragments, no sync — identical to original behavior
