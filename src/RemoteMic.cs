@@ -71,6 +71,15 @@ class RemoteMic {
             dumpSamples = null;
         }
         if (hotkeyEnabled) keyQueue.Add(new KeyAction(KeyAction.VoiceRelease, null));
+        // Re-arm remote HTT standby so next button press is guaranteed to respond
+        Task.Run(async () => {
+            try {
+                await Task.Delay(60);
+                if (isConnected && chCmd != null && state == State.Idle) {
+                    await WriteCmd(new byte[] { 0x0C, 0x00 });
+                }
+            } catch { }
+        });
     }
 
     // ===== ATVV negotiated parameters (updated from CAPS / AUDIO_START) =====
@@ -204,18 +213,17 @@ class RemoteMic {
             }
 
             if (ok) {
-                // Connected! Run keepalive and monitor connection status
+                // Connected! Monitor connection status
                 while (isConnected && !reconnectRequested) {
-                    await Task.Delay(4000);
+                    await Task.Delay(2000);
                     if (device == null || device.ConnectionStatus == BluetoothConnectionStatus.Disconnected) {
                         Console.WriteLine("\n[BLE] Connection lost (status Disconnected) -> reconnecting...");
                         break;
                     }
-                    try {
-                        await WriteCmd(new byte[] { 0x0E, sessionId }); // MIC_EXTEND keepalive ping
-                    } catch (Exception ex) {
-                        Console.WriteLine("\n[BLE] Keepalive write failed (" + ex.Message + ") -> reconnecting...");
-                        break;
+                    if (state == State.Talking) {
+                        try {
+                            await WriteCmd(new byte[] { 0x0E, sessionId }); // extend active speech session
+                        } catch { }
                     }
                 }
             }
