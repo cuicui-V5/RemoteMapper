@@ -117,42 +117,111 @@ class RemoteMic {
 
     // ===== BLE =====
     static BluetoothLEDevice device;
+    static GattDeviceService currentSvc;
     static GattCharacteristic chCmd;
+    static volatile bool isConnected = false;
+    static volatile bool reconnectRequested = false;
     static bool hotkeyEnabled = Environment.GetEnvironmentVariable("REMOTEMIC_HOTKEY") != "0";
     static bool dumpEnabled = Environment.GetEnvironmentVariable("REMOTEMIC_DUMP") == "1";
 
+    public static void TriggerReconnect() {
+        reconnectRequested = true;
+    }
+
     static async Task Run() {
         Console.Title = "RemoteMic - Xiaomi Remote -> VB-Cable";
-        Console.WriteLine("== RemoteMic: remote mic -> CABLE + WeChat IME hotkey ==");
+        Console.WriteLine("== RemoteMic: remote mic -> CABLE + Voice IME hotkey ==");
 
         KeyMapper.Load("keymap.json");
         StartKeyWorker();
         KeyMapUi.Start();
         VoiceKeyBlocker.Start();
 
-        // 1. connect BLE  (match by device name "MI RC" so it works across remotes/machines;
-        //                   fall back to a known MAC prefix)
-        Console.Write("[1/4] connecting to remote...");
+        // Listen for system sleep / modern standby / hibernate resume events
+        try {
+            Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) => {
+                if (e.Mode == Microsoft.Win32.PowerModes.Resume) {
+                    Console.WriteLine("\n[POWER] System resumed from sleep/standby -> refreshing hook and triggering reconnect");
+                    VoiceKeyBlocker.EnsureHook();
+                    TriggerReconnect();
+                }
+            };
+        } catch (Exception ex) { Console.WriteLine("[POWER] event hook err: " + ex.Message); }
+
+        // Start VB-Cable audio streamer
+        streamer = new WaveStreamer();
+        if (!streamer.Start(SR)) {
+            Console.WriteLine("[AUDIO] CABLE not found at startup, will retry when audio streams");
+        }
+
+        Console.WriteLine("===========================================================");
+        Console.WriteLine(">> HOLD the voice button to talk. Release to stop.");
+        Console.WriteLine(">> Configured hotkey will be held for your voice IME.");
+        Console.WriteLine(">> Background connection watchdog & sleep recovery ACTIVE.");
+        Console.WriteLine(">> Ctrl+C to exit.");
+        Console.WriteLine("===========================================================\n");
+
+        // Main lifecycle loop: auto-connects, keeps alive, and auto-reconnects on sleep/drop
+        while (true) {
+            bool ok = false;
+            try {
+                ok = await TryConnectBle();
+            } catch (Exception ex) {
+                Console.WriteLine("[BLE] Connection attempt error: " + ex.Message);
+            }
+
+            if (ok) {
+                // Connected! Run keepalive and monitor connection status
+                while (isConnected && !reconnectRequested) {
+                    await Task.Delay(4000);
+                    if (device == null || device.ConnectionStatus == BluetoothConnectionStatus.Disconnected) {
+                        Console.WriteLine("\n[BLE] Connection lost (status Disconnected) -> reconnecting...");
+                        break;
+                    }
+                    try {
+                        await WriteCmd(new byte[] { 0x0E, sessionId }); // MIC_EXTEND keepalive ping
+                    } catch (Exception ex) {
+                        Console.WriteLine("\n[BLE] Keepalive write failed (" + ex.Message + ") -> reconnecting...");
+                        break;
+                    }
+                }
+            }
+
+            CleanupBle();
+            await Task.Delay(2500); // Backoff before next connection attempt
+        }
+    }
+
+    static async Task<bool> TryConnectBle() {
+        reconnectRequested = false;
         var sel = BluetoothLEDevice.GetDeviceSelector();
         var devs = await AsT(DeviceInformation.FindAllAsync(sel));
         var di = devs.FirstOrDefault(d => d.Name.IndexOf("MI RC", StringComparison.OrdinalIgnoreCase) >= 0)
                ?? devs.FirstOrDefault(d => d.Id.IndexOf("c0:5d:39", StringComparison.OrdinalIgnoreCase) >= 0);
         if (di == null) {
-            Console.WriteLine(" NOT FOUND (turn on remote, re-pair if needed)");
-            Console.WriteLine(">> Key mapping panel is still available from the tray icon.");
-            await IdleForever();
-            return;
+            return false; // Remote is likely sleeping or out of range, will silently retry
         }
-        device = await AsT(BluetoothLEDevice.FromIdAsync(di.Id));
-        if (device == null) { Console.WriteLine(" FromIdAsync failed"); return; }
-        Console.WriteLine(" OK (" + di.Name + ")");
 
-        // 2. GATT setup (retry: service enumeration can be empty if BLE not ready)
-        Console.Write("[2/4] setting up ATVV service...");
+        Console.Write("[BLE] Found remote (" + di.Name + "), connecting...");
+        var dev = await AsT(BluetoothLEDevice.FromIdAsync(di.Id));
+        if (dev == null) {
+            Console.WriteLine(" FromIdAsync failed");
+            return false;
+        }
+
+        HookEventNamed(dev, "add_ConnectionStatusChanged", new TypedEventHandler<BluetoothLEDevice, object>((s, e) => {
+            if (s.ConnectionStatus == BluetoothConnectionStatus.Disconnected) {
+                Console.WriteLine("\n[BLE] Event: device disconnected");
+                TriggerReconnect();
+            } else if (s.ConnectionStatus == BluetoothConnectionStatus.Connected) {
+                Console.WriteLine("\n[BLE] Event: device connected");
+            }
+        }));
+
         GattDeviceService svc = null;
         GattCharacteristic cmd = null, chAud = null, chCtl = null;
         for (int attempt = 0; attempt < 5; attempt++) {
-            var svcRes = await AsT(device.GetGattServicesAsync(BluetoothCacheMode.Uncached));
+            var svcRes = await AsT(dev.GetGattServicesAsync(BluetoothCacheMode.Uncached));
             svc = svcRes.Services.FirstOrDefault(s => s.Uuid == SVC);
             if (svc != null) {
                 var chRes = await AsT(svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached));
@@ -161,56 +230,56 @@ class RemoteMic {
                 chCtl = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_CTL);
                 if (cmd != null && chAud != null && chCtl != null) break;
             }
-            Console.Write(" retry " + (attempt + 1) + "/5...");
-            await Task.Delay(1000);
+            await Task.Delay(800);
         }
-        if (svc == null) throw new Exception("ATVV service not found after 5 retries");
-        if (cmd == null || chAud == null || chCtl == null)
-            throw new Exception("ATVV characteristics not found after 5 retries");
+
+        if (svc == null || cmd == null || chAud == null || chCtl == null) {
+            Console.WriteLine(" ATVV characteristics not ready");
+            try { if (svc != null) svc.Dispose(); dev.Dispose(); } catch { }
+            return false;
+        }
+
+        device = dev;
+        currentSvc = svc;
         chCmd = cmd;
         HookEvent(chCtl, MakeCtlHandler());
         HookEvent(chAud, MakeAudioHandler());
         await AsT(chCtl.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
         await AsT(chAud.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
-        Console.WriteLine(" OK");
 
-        // 3. open CABLE
-        Console.Write("[3/4] opening VB-Cable Input...");
-        streamer = new WaveStreamer();
-        if (!streamer.Start(SR)) {
-            Console.WriteLine(" CABLE not found!");
-            Console.WriteLine(">> Key mapping panel is still available from the tray icon.");
-            await IdleForever();
-            return;
+        // Ensure audio streamer is alive
+        if (streamer == null || !streamer.IsAlive) {
+            if (streamer != null) streamer.Stop();
+            streamer = new WaveStreamer();
+            streamer.Start(SR);
         }
-        Console.WriteLine(" OK");
-        Console.WriteLine("[DEV] Auto-switch default capture disabled; audio routes directly to CABLE Output");
 
-        // 4. ATVV handshake
-        Console.Write("[4/4] ATVV handshake...");
+        // ATVV Handshake
         await WriteCmd(new byte[] { 0x0A, 0x01, 0x00, 0x00, 0x03, 0x03 }); // GET_CAPS
-        await Task.Delay(600);
+        await Task.Delay(300);
         await WriteCmd(new byte[] { 0x0C, 0x00 }); // MIC_OPEN
-        await Task.Delay(500);
-        Console.WriteLine(" ready");
+        await Task.Delay(200);
 
-        Console.WriteLine("===========================================================");
-        Console.WriteLine(">> HOLD the voice button to talk. Release to stop.");
-        Console.WriteLine(">> WeChat IME hotkey [RAlt + Comma] will be held for you.");
-        Console.WriteLine(">> Make sure WeChat IME's mic = system default = CABLE Output,");
-        Console.WriteLine("   OR per-app mic set to CABLE Output for wetype_server.exe.");
-        Console.WriteLine(">> Ctrl+C to exit.");
-        Console.WriteLine("===========================================================\n");
-
-        // keepalive loop
-        while (true) {
-            await Task.Delay(5000);
-            try { await WriteCmd(new byte[] { 0x0E, sessionId }); } catch { } // MIC_EXTEND (real session ID)
-        }
+        Console.WriteLine(" OK (ATVV ready)");
+        isConnected = true;
+        return true;
     }
 
-    static async Task IdleForever() {
-        while (true) await Task.Delay(60000);
+    static void CleanupBle() {
+        isConnected = false;
+        chCmd = null;
+        try {
+            if (currentSvc != null) {
+                currentSvc.Dispose();
+                currentSvc = null;
+            }
+        } catch { }
+        try {
+            if (device != null) {
+                device.Dispose();
+                device = null;
+            }
+        } catch { }
     }
 
     static TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> MakeCtlHandler() {
@@ -371,9 +440,13 @@ class RemoteMic {
         await AsT(chCmd.WriteValueAsync(w.DetachBuffer()));
     }
     static void HookEvent(object instance, Delegate handler) {
-        var mi = instance.GetType().GetMethod("add_ValueChanged",
+        HookEventNamed(instance, "add_ValueChanged", handler);
+    }
+    static void HookEventNamed(object instance, string methodName, Delegate handler) {
+        if (instance == null) return;
+        var mi = instance.GetType().GetMethod(methodName,
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-        mi.Invoke(instance, new object[] { handler });
+        if (mi != null) mi.Invoke(instance, new object[] { handler });
     }
     static Task<T> AsT<T>(IAsyncOperation<T> op) {
         var tcs = new TaskCompletionSource<T>();
@@ -505,6 +578,14 @@ class VoiceKeyBlocker {
                 Console.WriteLine("[F5] voice-key blocker + key mapper hook installed");
                 MSG m;
                 while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) {
+                    if (m.message == WM_APP_REHOOK) {
+                        if (hhk != IntPtr.Zero) {
+                            try { UnhookWindowsHookEx(hhk); } catch { }
+                            hhk = IntPtr.Zero;
+                        }
+                        hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
+                        Console.WriteLine("[F5] hook refreshed by watchdog");
+                    }
                     if (m.message == WM_TIMER && unchecked((ulong)m.wParam.ToInt64()) == keymapTimerId.ToUInt64()) {
                         if (hhk == IntPtr.Zero)
                             hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
@@ -520,6 +601,11 @@ class VoiceKeyBlocker {
     }
     [DllImport("user32.dll")] static extern bool TranslateMessage(ref MSG m);
     [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref MSG m);
+    public static void EnsureHook() {
+        if (pumpTid != 0) {
+            PostThreadMessage(pumpTid, WM_APP_REHOOK, IntPtr.Zero, IntPtr.Zero);
+        }
+    }
     public static void Stop() {
         if (hhk != IntPtr.Zero) { UnhookWindowsHookEx(hhk); hhk = IntPtr.Zero; }
     }
@@ -561,6 +647,10 @@ class WaveStreamer {
     object qlock = new object();
     volatile bool running;
     Thread thr;
+
+    public bool IsAlive {
+        get { return running && hWave != IntPtr.Zero; }
+    }
 
     public bool Start(int sr) {
         // find device: look for VB-Audio Virtual Cable / CABLE Input
@@ -620,11 +710,14 @@ class WaveStreamer {
         if (hWave != IntPtr.Zero) {
             waveOutReset(hWave);
             for (int i = 0; i < NB; i++) {
-                if (hdr[i] != IntPtr.Zero) { Marshal.FreeHGlobal(hdr[i]); Marshal.FreeHGlobal(data[i]); }
+                if (hdr[i] != IntPtr.Zero) { Marshal.FreeHGlobal(hdr[i]); hdr[i] = IntPtr.Zero; }
+                if (data[i] != IntPtr.Zero) { Marshal.FreeHGlobal(data[i]); data[i] = IntPtr.Zero; }
             }
             waveOutClose(hWave);
             hWave = IntPtr.Zero;
         }
+        lock (qlock) { q.Clear(); }
+        Array.Clear(used, 0, used.Length);
     }
 
     void Pump() {
