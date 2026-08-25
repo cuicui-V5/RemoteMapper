@@ -158,8 +158,9 @@ class RemoteMic {
 
     // ===== BLE =====
     static BluetoothLEDevice device;
+    static GattSession currentSession;
     static GattDeviceService currentSvc;
-    static GattCharacteristic chCmd;
+    static GattCharacteristic chCmd, charCtl, charAud;
     static volatile bool isConnected = false;
     static volatile bool reconnectRequested = false;
     static bool hotkeyEnabled = Environment.GetEnvironmentVariable("REMOTEMIC_HOTKEY") != "0";
@@ -167,6 +168,31 @@ class RemoteMic {
 
     public static void TriggerReconnect() {
         reconnectRequested = true;
+    }
+
+    public static void NotifyPhysicalVoiceKey() {
+        if (!isConnected || device == null || device.ConnectionStatus == BluetoothConnectionStatus.Disconnected) {
+            Console.WriteLine("\n[VOICE] Voice key pressed while BLE idle/sleeping -> waking connection");
+            TriggerReconnect();
+        }
+    }
+
+    static async Task ReArmRemoteAsync() {
+        if (!isConnected || chCmd == null || charCtl == null || charAud == null) {
+            TriggerReconnect();
+            return;
+        }
+        try {
+            await AsT(charCtl.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
+            await AsT(charAud.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
+            await WriteCmd(new byte[] { 0x0A, 0x01, 0x00, 0x00, 0x03, 0x03 }); // GET_CAPS
+            await Task.Delay(100);
+            await WriteCmd(new byte[] { 0x0C, 0x00 }); // MIC_OPEN
+            Console.WriteLine("[BLE] Remote re-armed and ready for HTT");
+        } catch (Exception ex) {
+            Console.WriteLine("[BLE] Re-arm error (" + ex.Message + ") -> triggering reconnect");
+            TriggerReconnect();
+        }
     }
 
     static async Task Run() {
@@ -252,12 +278,25 @@ class RemoteMic {
 
         HookEventNamed(dev, "add_ConnectionStatusChanged", new TypedEventHandler<BluetoothLEDevice, object>((s, e) => {
             if (s.ConnectionStatus == BluetoothConnectionStatus.Disconnected) {
-                Console.WriteLine("\n[BLE] Event: device disconnected");
+                Console.WriteLine("\n[BLE] Event: device disconnected (sleeping)");
                 TriggerReconnect();
             } else if (s.ConnectionStatus == BluetoothConnectionStatus.Connected) {
-                Console.WriteLine("\n[BLE] Event: device connected");
+                Console.WriteLine("\n[BLE] Event: device connected (woke up)");
+                Task.Run(async () => {
+                    await Task.Delay(200);
+                    await ReArmRemoteAsync();
+                });
             }
         }));
+
+        // Request maintain connection on GATT session so Windows doesn't drop GATT when idle
+        try {
+            var gattSession = await AsT(GattSession.FromDeviceIdAsync(dev.BluetoothDeviceId));
+            if (gattSession != null) {
+                gattSession.MaintainConnection = true;
+                currentSession = gattSession;
+            }
+        } catch { }
 
         GattDeviceService svc = null;
         GattCharacteristic cmd = null, chAud = null, chCtl = null;
@@ -283,6 +322,8 @@ class RemoteMic {
         device = dev;
         currentSvc = svc;
         chCmd = cmd;
+        charCtl = chCtl;
+        charAud = chAud;
         HookEvent(chCtl, MakeCtlHandler());
         HookEvent(chAud, MakeAudioHandler());
         await AsT(chCtl.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
@@ -310,6 +351,14 @@ class RemoteMic {
         StopTalking("BLE cleanup");
         isConnected = false;
         chCmd = null;
+        charCtl = null;
+        charAud = null;
+        try {
+            if (currentSession != null) {
+                currentSession.Dispose();
+                currentSession = null;
+            }
+        } catch { }
         try {
             if (currentSvc != null) {
                 currentSvc.Dispose();
@@ -584,7 +633,11 @@ class VoiceKeyBlocker {
         try {
             if (nCode >= 0) {
                 var k = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-                if (k.vkCode == VK_F5 || k.vkCode == VK_F20) { f5Count++; return (IntPtr)1; }   // swallow remote voice-button spam
+                if (k.vkCode == VK_F5 || k.vkCode == VK_F20) {
+                    f5Count++;
+                    RemoteMic.NotifyPhysicalVoiceKey();
+                    return (IntPtr)1;
+                }
 
                 int message = wParam.ToInt32();
                 bool down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
